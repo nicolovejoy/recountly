@@ -2,12 +2,15 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Project status: Phase 1 core working (live transcription)
+## Project status: Phase 1 complete (live transcription + editable transcript)
 
 Live transcription works end-to-end: speak and words appear via a direct browser→OpenAI
-WebRTC connection (mic meter + in-app error surfacing in place). Persistence is still
-stubbed. **Next:** build the editable type-and-talk transcript — full plan at
-`docs/superpowers/plans/2026-06-03-editable-transcript.md` — then Phase 2 (persistence).
+WebRTC connection (mic meter + in-app error surfacing in place). The transcript is now an
+editable type-and-talk `<textarea>` — finalized spoken segments append to the end via the
+unit-tested `appendSegment` helper (`src/app/transcript.ts`) without disturbing the user's
+caret; Enter inserts a newline instead of toggling recording. Verified by real speech.
+Persistence is still stubbed. **Next:** Phase 2 (persistence — MediaRecorder → Vercel Blob
+→ Neon entry, newest-first list).
 
 ⚠️ Gotcha learned the hard way: the OpenAI `client_secrets` mint endpoint does **not**
 validate the transcription model name. A bogus name (we had `gpt-realtime-whisper`) mints
