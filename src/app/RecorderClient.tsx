@@ -11,7 +11,7 @@
 // The transcript itself is an uncontrolled <textarea> so the user can type/edit
 // while spoken segments append to the end without disturbing the caret.
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { appendSegment } from "./transcript";
 
 const OPENAI_CALLS_URL = "https://api.openai.com/v1/realtime/calls";
@@ -176,6 +176,21 @@ export default function RecorderClient() {
 
   const live = status === "live" || status === "connecting";
 
+  // Esc ends (or cancels) recording from anywhere on the page — including while
+  // typing in the transcript. Listen on the document so a focused textarea can't
+  // swallow the key. Only bound while live, so Esc is free for normal use when idle.
+  useEffect(() => {
+    if (!live) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        stop();
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [live, stop]);
+
   return (
     <main className="mx-auto flex min-h-full w-full max-w-2xl flex-1 flex-col gap-6 px-5 py-8">
       <header className="flex items-center justify-between">
@@ -202,6 +217,12 @@ export default function RecorderClient() {
             style={{ transform: "scaleX(0)" }}
           />
         </div>
+      )}
+
+      {live && (
+        <p className="-mt-3 text-center text-xs text-foreground/40">
+          press <kbd className="font-mono">Esc</kbd> to stop
+        </p>
       )}
 
       {errorMsg && (
