@@ -14,13 +14,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { appendSegment } from "./transcript";
 import { connectRealtimeSession } from "./realtime";
+import { recordingLight, type RecordingStatus } from "./recordingLight";
 
 const OPENAI_CALLS_URL = "https://api.openai.com/v1/realtime/calls";
 
 // Inlined at build time from next.config.ts (PST, "MM/DD/YYYY HH:MM").
 const BUILD_TIME = process.env.NEXT_PUBLIC_BUILD_TIME;
 
-type Status = "idle" | "connecting" | "live" | "stopping" | "error";
+type Status = RecordingStatus;
 
 type LogLine = { id: number; type: string; text?: string };
 
@@ -29,10 +30,6 @@ export default function RecorderClient() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [interim, setInterim] = useState("");
   const [log, setLog] = useState<LogLine[]>([]);
-  // Get-ready countdown shown AFTER the session goes live (3, 2, 1, then null =
-  // "speak now"). Gating it on live means the first words are never dropped while
-  // the connection is still being set up.
-  const [countdown, setCountdown] = useState<number | null>(null);
 
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -45,7 +42,6 @@ export default function RecorderClient() {
   // await in start() checks it and bails if a newer start/stop has superseded
   // this attempt — so an Esc mid-connect can't run code against a torn-down pc.
   const genRef = useRef(0);
-  const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const pushLog = useCallback((type: string, text?: string) => {
     logIdRef.current += 1;
@@ -54,9 +50,6 @@ export default function RecorderClient() {
   }, []);
 
   const cleanup = useCallback(() => {
-    if (countdownRef.current != null) clearInterval(countdownRef.current);
-    countdownRef.current = null;
-    setCountdown(null);
     if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
     rafRef.current = null;
     audioCtxRef.current?.close();
@@ -136,25 +129,6 @@ export default function RecorderClient() {
     tick();
   }, []);
 
-  // Get-ready countdown, started when the data channel opens (i.e. the session
-  // is live). Audio is already flowing, so nothing is dropped — this just tells
-  // the user when to talk. A plain local var drives the ticks so the state
-  // updater stays pure.
-  const startCountdown = useCallback(() => {
-    let n = 3;
-    setCountdown(n);
-    countdownRef.current = setInterval(() => {
-      n -= 1;
-      if (n <= 0) {
-        if (countdownRef.current != null) clearInterval(countdownRef.current);
-        countdownRef.current = null;
-        setCountdown(null); // null => "Speak now"
-      } else {
-        setCountdown(n);
-      }
-    }, 500);
-  }, []);
-
   const start = useCallback(async () => {
     // Capture this attempt's generation. If stop() (or a newer start) bumps
     // genRef while we're awaiting, connectRealtimeSession sees isStale() and bails.
@@ -165,7 +139,6 @@ export default function RecorderClient() {
     // multiple times into one entry. They clear it by editing the textarea.
     setInterim("");
     setLog([]);
-    setCountdown(null);
     setStatus("connecting");
     try {
       const result = await connectRealtimeSession(
@@ -199,8 +172,7 @@ export default function RecorderClient() {
           onDataChannel: (dc) => {
             dc.addEventListener("open", () => {
               if (genRef.current !== myGen) return; // cancelled before the channel opened
-              setStatus("live");
-              startCountdown();
+              setStatus("live"); // stoplight flips to red — on air
             });
             dc.addEventListener("message", (e) => {
               try {
@@ -219,7 +191,7 @@ export default function RecorderClient() {
       setStatus("error");
       cleanup();
     }
-  }, [cleanup, handleEvent, pushLog, startMeter, startCountdown]);
+  }, [cleanup, handleEvent, pushLog, startMeter]);
 
   const stop = useCallback(() => {
     genRef.current += 1; // invalidate any in-flight start() so it stops touching the pc
@@ -230,6 +202,7 @@ export default function RecorderClient() {
   }, [cleanup]);
 
   const live = status === "live" || status === "connecting";
+  const light = recordingLight(status);
 
   // Esc ends (or cancels) recording from anywhere on the page — including while
   // typing in the transcript. Listen on the document so a focused textarea can't
@@ -279,21 +252,21 @@ export default function RecorderClient() {
         </div>
       )}
 
-      {status === "connecting" && (
-        <p className="-mt-3 text-center text-sm text-foreground/50">Connecting…</p>
-      )}
-
-      {countdown !== null && (
-        <p className="-mt-3 text-center text-5xl font-semibold tabular-nums" aria-live="assertive">
-          {countdown}
-        </p>
-      )}
-
-      {status === "live" && countdown === null && (
-        <p className="-mt-3 text-center text-sm font-medium text-green-600" aria-live="polite">
-          ● Speak now
-        </p>
-      )}
+      {/* Stoplight: green = ready, amber = connecting, red = recording (on air). */}
+      <div className="-mt-3 flex items-center justify-center gap-2.5" role="status" aria-live="polite">
+        <span className="flex items-center gap-1.5" aria-hidden>
+          <span
+            className={`h-3 w-3 rounded-full bg-red-500 ${light.lamp === "red" ? "opacity-100 animate-pulse" : "opacity-20"}`}
+          />
+          <span
+            className={`h-3 w-3 rounded-full bg-amber-500 ${light.lamp === "amber" ? "opacity-100" : "opacity-20"}`}
+          />
+          <span
+            className={`h-3 w-3 rounded-full bg-green-500 ${light.lamp === "green" ? "opacity-100" : "opacity-20"}`}
+          />
+        </span>
+        <span className="text-sm text-foreground/60">{light.label}</span>
+      </div>
 
       {live && (
         <p className="text-center text-xs text-foreground/40">
