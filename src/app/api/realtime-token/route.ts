@@ -8,10 +8,17 @@
 
 const OPENAI_CLIENT_SECRETS_URL = "https://api.openai.com/v1/realtime/client_secrets";
 
-// Streaming-oriented transcription model. Set server-side so we can tune latency vs.
-// accuracy without shipping client changes. Alternatives: gpt-4o-transcribe (more
-// accurate, more latency), gpt-4o-mini-transcribe.
-const TRANSCRIPTION_MODEL = "gpt-realtime-whisper";
+// Transcription model. Set server-side so we can tune latency vs. accuracy without
+// shipping client changes. Alternatives: gpt-4o-mini-transcribe (faster, cheaper),
+// whisper-1 (legacy).
+//
+// IMPORTANT: this MUST be a real model. The mint endpoint does NOT validate the model
+// name — it returns a token for any string — but the WebRTC call setup at
+// /v1/realtime/calls then hangs ~15s and Cloudflare returns a 504 (with no CORS
+// headers, so the browser misreports it as a CORS error). A bogus name here was the
+// Phase 1 "CORS bug". Verified working models (2026-06-03): gpt-4o-transcribe,
+// gpt-4o-mini-transcribe, whisper-1.
+const TRANSCRIPTION_MODEL = "gpt-4o-transcribe";
 
 export async function GET() {
   const apiKey = process.env.OPENAI_API_KEY;
@@ -34,8 +41,10 @@ export async function GET() {
         audio: {
           input: {
             transcription: { model: TRANSCRIPTION_MODEL, language: "en" },
-            // NOTE: gpt-realtime-whisper segments natively and rejects turn_detection.
-            // If we switch to a gpt-4o-transcribe model we can add server_vad here.
+            // NOTE: gpt-4o-transcribe relies on turn detection to decide when to commit
+            // a segment and emit a completed transcript. If the live demo shows interim
+            // deltas but no committed segments, add turn_detection: { type: "server_vad" }
+            // here. Left off until the demo proves whether it's needed.
           },
         },
       },
