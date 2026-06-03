@@ -6,11 +6,13 @@
 // open "oai-events" data channel -> POST SDP offer to /v1/realtime/calls ->
 // apply answer -> render transcript deltas as they stream back.
 //
-// SPIKE: the inline event handling and the raw event log are throwaway. Once we
-// confirm the real event names/shapes by speaking into this, the transcript logic
-// gets extracted into a tested pure reducer (Phase 1, step 3).
+// SPIKE: the inline event handling and the raw event log are throwaway. The
+// transcript-merge logic now lives in ./transcript (appendSegment, unit-tested).
+// The transcript itself is an uncontrolled <textarea> so the user can type/edit
+// while spoken segments append to the end without disturbing the caret.
 
 import { useCallback, useRef, useState } from "react";
+import { appendSegment } from "./transcript";
 
 const OPENAI_CALLS_URL = "https://api.openai.com/v1/realtime/calls";
 
@@ -21,7 +23,6 @@ type LogLine = { id: number; type: string; text?: string };
 export default function RecorderClient() {
   const [status, setStatus] = useState<Status>("idle");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [committed, setCommitted] = useState("");
   const [interim, setInterim] = useState("");
   const [log, setLog] = useState<LogLine[]>([]);
 
@@ -31,6 +32,7 @@ export default function RecorderClient() {
   const audioCtxRef = useRef<AudioContext | null>(null);
   const rafRef = useRef<number | null>(null);
   const meterRef = useRef<HTMLDivElement | null>(null);
+  const textRef = useRef<HTMLTextAreaElement | null>(null);
 
   const pushLog = useCallback((type: string, text?: string) => {
     logIdRef.current += 1;
@@ -64,7 +66,26 @@ export default function RecorderClient() {
         break;
       case "conversation.item.input_audio_transcription.completed":
         if (typeof event.transcript === "string") {
-          setCommitted((prev) => (prev ? prev + " " : "") + event.transcript!.trim());
+          // Append the finalized segment to the editable textarea WITHOUT
+          // disturbing the user's caret. We only ever append at the end, so an
+          // earlier selection stays valid and is restored verbatim. If the caret
+          // was already at the end (or the textarea is unfocused), follow along
+          // and scroll to the bottom.
+          const ta = textRef.current;
+          if (ta) {
+            const selStart = ta.selectionStart;
+            const selEnd = ta.selectionEnd;
+            const wasAtEnd =
+              selStart === ta.value.length && selEnd === ta.value.length;
+            ta.value = appendSegment(ta.value, event.transcript);
+            if (wasAtEnd) {
+              ta.selectionStart = ta.selectionEnd = ta.value.length;
+              ta.scrollTop = ta.scrollHeight;
+            } else {
+              ta.selectionStart = selStart;
+              ta.selectionEnd = selEnd;
+            }
+          }
           setInterim("");
         }
         break;
@@ -78,7 +99,9 @@ export default function RecorderClient() {
 
   const start = useCallback(async () => {
     setErrorMsg(null);
-    setCommitted("");
+    // NOTE: intentionally do NOT clear the textarea here — the user may have
+    // pre-typed hard-to-transcribe words before tapping Record, and may record
+    // multiple times into one entry. They clear it by editing the textarea.
     setInterim("");
     setLog([]);
     setStatus("connecting");
@@ -187,13 +210,17 @@ export default function RecorderClient() {
         </p>
       )}
 
-      <section className="min-h-32 rounded-xl border border-foreground/10 p-4 text-lg leading-relaxed">
-        {committed && <span>{committed} </span>}
-        {interim && <span className="text-foreground/40">{interim}</span>}
-        {!committed && !interim && (
-          <span className="text-foreground/30">Your words will appear here…</span>
+      <div className="flex flex-1 flex-col gap-1">
+        <textarea
+          ref={textRef}
+          placeholder="Type or talk — your words appear here…"
+          aria-label="Transcript"
+          className="min-h-48 w-full flex-1 resize-none rounded-xl border border-foreground/10 bg-transparent p-4 text-lg leading-relaxed outline-none placeholder:text-foreground/30 focus:border-foreground/30"
+        />
+        {interim && (
+          <p className="px-4 text-lg leading-relaxed text-foreground/40">{interim}</p>
         )}
-      </section>
+      </div>
 
       <details className="text-xs text-foreground/50">
         <summary className="cursor-pointer select-none">raw event log (spike)</summary>
