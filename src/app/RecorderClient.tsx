@@ -33,6 +33,10 @@ export default function RecorderClient() {
   const rafRef = useRef<number | null>(null);
   const meterRef = useRef<HTMLDivElement | null>(null);
   const textRef = useRef<HTMLTextAreaElement | null>(null);
+  // Cancellation token for the async start() sequence. stop() bumps it; each
+  // await in start() checks it and bails if a newer start/stop has superseded
+  // this attempt — so an Esc mid-connect can't run code against a torn-down pc.
+  const genRef = useRef(0);
 
   const pushLog = useCallback((type: string, text?: string) => {
     logIdRef.current += 1;
@@ -98,6 +102,9 @@ export default function RecorderClient() {
   }, [pushLog]);
 
   const start = useCallback(async () => {
+    // Capture this attempt's generation. If stop() (or a newer start) bumps
+    // genRef while we're awaiting, every checkpoint below bails out.
+    const myGen = ++genRef.current;
     setErrorMsg(null);
     // NOTE: intentionally do NOT clear the textarea here — the user may have
     // pre-typed hard-to-transcribe words before tapping Record, and may record
@@ -107,14 +114,22 @@ export default function RecorderClient() {
     setStatus("connecting");
     try {
       const tokenRes = await fetch("/api/realtime-token");
+      if (genRef.current !== myGen) return; // cancelled before the pc exists
       if (!tokenRes.ok) throw new Error(`token route ${tokenRes.status}`);
       const { token } = (await tokenRes.json()) as { token: string };
+      if (genRef.current !== myGen) return;
 
       const pc = new RTCPeerConnection();
       pcRef.current = pc;
       pc.addEventListener("connectionstatechange", () => pushLog(`pc:${pc.connectionState}`));
 
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (genRef.current !== myGen) {
+        // cleanup() already ran (it saw streamRef.current === null), so this
+        // freshly-granted mic stream is orphaned — stop it ourselves.
+        stream.getTracks().forEach((t) => t.stop());
+        return;
+      }
       streamRef.current = stream;
       stream.getTracks().forEach((track) => pc.addTrack(track, stream));
 
@@ -151,16 +166,21 @@ export default function RecorderClient() {
 
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
+      if (genRef.current !== myGen) return;
 
       const sdpRes = await fetch(OPENAI_CALLS_URL, {
         method: "POST",
         body: offer.sdp,
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/sdp" },
       });
+      if (genRef.current !== myGen) return;
       if (!sdpRes.ok) throw new Error(`calls ${sdpRes.status}: ${(await sdpRes.text()).slice(0, 120)}`);
 
-      await pc.setRemoteDescription({ type: "answer", sdp: await sdpRes.text() });
+      const answerSdp = await sdpRes.text();
+      if (genRef.current !== myGen) return;
+      await pc.setRemoteDescription({ type: "answer", sdp: answerSdp });
     } catch (err) {
+      if (genRef.current !== myGen) return; // a cancelled attempt's throw isn't a real error
       setErrorMsg(err instanceof Error ? err.message : String(err));
       setStatus("error");
       cleanup();
@@ -168,6 +188,7 @@ export default function RecorderClient() {
   }, [cleanup, handleEvent, pushLog]);
 
   const stop = useCallback(() => {
+    genRef.current += 1; // invalidate any in-flight start() so it stops touching the pc
     setStatus("stopping");
     cleanup();
     setInterim("");
