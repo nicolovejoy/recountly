@@ -233,13 +233,31 @@ export default function RecorderClient() {
         </div>
       </header>
 
+      {/* The traffic light IS the control — tap to record/stop. Lamps run
+          green → orange → red (red on the right): green = ready, orange =
+          connecting, red (pulsing) = live/on-air. */}
       <button
         onClick={live ? stop : start}
-        className={`flex h-14 items-center justify-center gap-2 rounded-full px-6 text-base font-medium text-background transition-colors ${
-          live ? "bg-red-600 hover:bg-red-700" : "bg-foreground hover:opacity-90"
-        }`}
+        aria-label={live ? "Stop recording" : "Start recording"}
+        className="mx-auto flex cursor-pointer items-center gap-4 rounded-full border border-foreground/15 bg-foreground/[0.04] px-7 py-4 transition-colors hover:bg-foreground/[0.08]"
       >
-        {live ? "■ Stop" : "● Record"}
+        <span className="flex items-center gap-3" aria-hidden>
+          <span
+            className={`h-7 w-7 rounded-full bg-green-500 transition-opacity ${light.lamp === "green" ? "opacity-100 shadow-lg shadow-green-500/50" : "opacity-20"}`}
+          />
+          <span
+            className={`h-7 w-7 rounded-full bg-orange-500 transition-opacity ${light.lamp === "orange" ? "opacity-100 shadow-lg shadow-orange-500/50" : "opacity-20"}`}
+          />
+          <span
+            className={`h-7 w-7 rounded-full bg-red-500 transition-opacity ${light.lamp === "red" ? "opacity-100 animate-pulse shadow-lg shadow-red-500/60" : "opacity-20"}`}
+          />
+        </span>
+        <span
+          className="min-w-24 whitespace-nowrap text-left text-lg font-medium text-foreground/70"
+          aria-live="polite"
+        >
+          {light.label}
+        </span>
       </button>
 
       {live && (
@@ -251,22 +269,6 @@ export default function RecorderClient() {
           />
         </div>
       )}
-
-      {/* Stoplight: green = ready, amber = connecting, red = recording (on air). */}
-      <div className="-mt-3 flex items-center justify-center gap-2.5" role="status" aria-live="polite">
-        <span className="flex items-center gap-1.5" aria-hidden>
-          <span
-            className={`h-3 w-3 rounded-full bg-red-500 ${light.lamp === "red" ? "opacity-100 animate-pulse" : "opacity-20"}`}
-          />
-          <span
-            className={`h-3 w-3 rounded-full bg-amber-500 ${light.lamp === "amber" ? "opacity-100" : "opacity-20"}`}
-          />
-          <span
-            className={`h-3 w-3 rounded-full bg-green-500 ${light.lamp === "green" ? "opacity-100" : "opacity-20"}`}
-          />
-        </span>
-        <span className="text-sm text-foreground/60">{light.label}</span>
-      </div>
 
       {live && (
         <p className="text-center text-xs text-foreground/40">
