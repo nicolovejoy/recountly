@@ -20,12 +20,13 @@ the whole thing work on Vercel's serverless model (no long-lived server connecti
 why the secret `OPENAI_API_KEY` never reaches the browser — only a ~1-minute ephemeral token.
 
 ```mermaid
+%%{init: {'theme':'dark'}}%%
 sequenceDiagram
     autonumber
     participant U as You (mic)
-    participant B as Browser<br/>(recountly client)
-    participant S as Next.js route<br/>/api/realtime-token
-    participant O as OpenAI<br/>Realtime API
+    participant B as Browser (recountly client)
+    participant S as Next.js route /api/realtime-token
+    participant O as OpenAI Realtime API
 
     U->>B: tap "Record"
     B->>S: GET /api/realtime-token
@@ -96,6 +97,7 @@ so we can tune it without shipping client changes.
 ## Components we build (small, isolated units)
 
 ```mermaid
+%%{init: {'theme':'dark'}}%%
 flowchart LR
     A["/api/realtime-token<br/>route handler<br/>(server)"] -->|ephemeral token| B
     B["useRealtimeTranscription()<br/>hook (client)<br/>owns the WebRTC dance"] -->|state| C
