@@ -13,6 +13,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { appendSegment } from "./transcript";
+import { connectRealtimeSession } from "./realtime";
 
 const OPENAI_CALLS_URL = "https://api.openai.com/v1/realtime/calls";
 
@@ -112,9 +113,51 @@ export default function RecorderClient() {
     }
   }, [pushLog]);
 
+  // Live mic-level meter — visual proof the mic is actually capturing audio.
+  // Drives the bar via a ref (no re-render per frame).
+  const startMeter = useCallback((stream: MediaStream) => {
+    const audioCtx = new AudioContext();
+    audioCtxRef.current = audioCtx;
+    const analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 256;
+    audioCtx.createMediaStreamSource(stream).connect(analyser);
+    const samples = new Uint8Array(analyser.frequencyBinCount);
+    const tick = () => {
+      analyser.getByteTimeDomainData(samples);
+      let sum = 0;
+      for (let i = 0; i < samples.length; i++) {
+        const v = (samples[i] - 128) / 128;
+        sum += v * v;
+      }
+      const level = Math.min(1, Math.sqrt(sum / samples.length) * 3);
+      if (meterRef.current) meterRef.current.style.transform = `scaleX(${level})`;
+      rafRef.current = requestAnimationFrame(tick);
+    };
+    tick();
+  }, []);
+
+  // Get-ready countdown, started when the data channel opens (i.e. the session
+  // is live). Audio is already flowing, so nothing is dropped — this just tells
+  // the user when to talk. A plain local var drives the ticks so the state
+  // updater stays pure.
+  const startCountdown = useCallback(() => {
+    let n = 3;
+    setCountdown(n);
+    countdownRef.current = setInterval(() => {
+      n -= 1;
+      if (n <= 0) {
+        if (countdownRef.current != null) clearInterval(countdownRef.current);
+        countdownRef.current = null;
+        setCountdown(null); // null => "Speak now"
+      } else {
+        setCountdown(n);
+      }
+    }, 500);
+  }, []);
+
   const start = useCallback(async () => {
     // Capture this attempt's generation. If stop() (or a newer start) bumps
-    // genRef while we're awaiting, every checkpoint below bails out.
+    // genRef while we're awaiting, connectRealtimeSession sees isStale() and bails.
     const myGen = ++genRef.current;
     setErrorMsg(null);
     // NOTE: intentionally do NOT clear the textarea here — the user may have
@@ -125,98 +168,58 @@ export default function RecorderClient() {
     setCountdown(null);
     setStatus("connecting");
     try {
-      const tokenRes = await fetch("/api/realtime-token");
-      if (genRef.current !== myGen) return; // cancelled before the pc exists
-      if (!tokenRes.ok) throw new Error(`token route ${tokenRes.status}`);
-      const { token } = (await tokenRes.json()) as { token: string };
-      if (genRef.current !== myGen) return;
-
-      const pc = new RTCPeerConnection();
-      pcRef.current = pc;
-      pc.addEventListener("connectionstatechange", () => pushLog(`pc:${pc.connectionState}`));
-
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      if (genRef.current !== myGen) {
-        // cleanup() already ran (it saw streamRef.current === null), so this
-        // freshly-granted mic stream is orphaned — stop it ourselves.
-        stream.getTracks().forEach((t) => t.stop());
-        return;
-      }
-      streamRef.current = stream;
-      stream.getTracks().forEach((track) => pc.addTrack(track, stream));
-
-      // Live mic-level meter — visual proof the mic is actually capturing audio.
-      // Drives the bar via a ref (no re-render per frame).
-      const audioCtx = new AudioContext();
-      audioCtxRef.current = audioCtx;
-      const analyser = audioCtx.createAnalyser();
-      analyser.fftSize = 256;
-      audioCtx.createMediaStreamSource(stream).connect(analyser);
-      const samples = new Uint8Array(analyser.frequencyBinCount);
-      const tick = () => {
-        analyser.getByteTimeDomainData(samples);
-        let sum = 0;
-        for (let i = 0; i < samples.length; i++) {
-          const v = (samples[i] - 128) / 128;
-          sum += v * v;
-        }
-        const level = Math.min(1, Math.sqrt(sum / samples.length) * 3);
-        if (meterRef.current) meterRef.current.style.transform = `scaleX(${level})`;
-        rafRef.current = requestAnimationFrame(tick);
-      };
-      tick();
-
-      const dc = pc.createDataChannel("oai-events");
-      dc.addEventListener("open", () => {
-        if (genRef.current !== myGen) return; // cancelled before the channel opened
-        setStatus("live");
-        // Now that the session is actually live, run a brief get-ready countdown.
-        // Audio is already being captured, so nothing is dropped — this just tells
-        // the user when to start talking. A plain local var (not state) drives the
-        // ticks so the updater stays pure.
-        let n = 3;
-        setCountdown(n);
-        countdownRef.current = setInterval(() => {
-          n -= 1;
-          if (n <= 0) {
-            if (countdownRef.current != null) clearInterval(countdownRef.current);
-            countdownRef.current = null;
-            setCountdown(null); // null => "Speak now"
-          } else {
-            setCountdown(n);
-          }
-        }, 500);
-      });
-      dc.addEventListener("message", (e) => {
-        try {
-          handleEvent(JSON.parse(e.data));
-        } catch {
-          pushLog("(unparseable)", String(e.data).slice(0, 80));
-        }
-      });
-
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      if (genRef.current !== myGen) return;
-
-      const sdpRes = await fetch(OPENAI_CALLS_URL, {
-        method: "POST",
-        body: offer.sdp,
-        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/sdp" },
-      });
-      if (genRef.current !== myGen) return;
-      if (!sdpRes.ok) throw new Error(`calls ${sdpRes.status}: ${(await sdpRes.text()).slice(0, 120)}`);
-
-      const answerSdp = await sdpRes.text();
-      if (genRef.current !== myGen) return;
-      await pc.setRemoteDescription({ type: "answer", sdp: answerSdp });
+      const result = await connectRealtimeSession(
+        {
+          fetchToken: async () => {
+            const res = await fetch("/api/realtime-token");
+            if (!res.ok) throw new Error(`token route ${res.status}`);
+            return ((await res.json()) as { token: string }).token;
+          },
+          createPeerConnection: () => new RTCPeerConnection(),
+          getUserMedia: () => navigator.mediaDevices.getUserMedia({ audio: true }),
+          postOffer: async (sdp, token) => {
+            const res = await fetch(OPENAI_CALLS_URL, {
+              method: "POST",
+              body: sdp,
+              headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/sdp" },
+            });
+            return { ok: res.ok, status: res.status, sdp: await res.text() };
+          },
+        },
+        {
+          isStale: () => genRef.current !== myGen,
+          onPeerConnection: (pc) => {
+            pcRef.current = pc;
+            pc.addEventListener("connectionstatechange", () => pushLog(`pc:${pc.connectionState}`));
+          },
+          onStream: (stream) => {
+            streamRef.current = stream;
+            startMeter(stream);
+          },
+          onDataChannel: (dc) => {
+            dc.addEventListener("open", () => {
+              if (genRef.current !== myGen) return; // cancelled before the channel opened
+              setStatus("live");
+              startCountdown();
+            });
+            dc.addEventListener("message", (e) => {
+              try {
+                handleEvent(JSON.parse(e.data));
+              } catch {
+                pushLog("(unparseable)", String(e.data).slice(0, 80));
+              }
+            });
+          },
+        },
+      );
+      if (result === "cancelled") return;
     } catch (err) {
       if (genRef.current !== myGen) return; // a cancelled attempt's throw isn't a real error
       setErrorMsg(err instanceof Error ? err.message : String(err));
       setStatus("error");
       cleanup();
     }
-  }, [cleanup, handleEvent, pushLog]);
+  }, [cleanup, handleEvent, pushLog, startMeter, startCountdown]);
 
   const stop = useCallback(() => {
     genRef.current += 1; // invalidate any in-flight start() so it stops touching the pc
