@@ -25,6 +25,10 @@ export default function RecorderClient() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [interim, setInterim] = useState("");
   const [log, setLog] = useState<LogLine[]>([]);
+  // Get-ready countdown shown AFTER the session goes live (3, 2, 1, then null =
+  // "speak now"). Gating it on live means the first words are never dropped while
+  // the connection is still being set up.
+  const [countdown, setCountdown] = useState<number | null>(null);
 
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -37,6 +41,7 @@ export default function RecorderClient() {
   // await in start() checks it and bails if a newer start/stop has superseded
   // this attempt — so an Esc mid-connect can't run code against a torn-down pc.
   const genRef = useRef(0);
+  const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const pushLog = useCallback((type: string, text?: string) => {
     logIdRef.current += 1;
@@ -45,6 +50,9 @@ export default function RecorderClient() {
   }, []);
 
   const cleanup = useCallback(() => {
+    if (countdownRef.current != null) clearInterval(countdownRef.current);
+    countdownRef.current = null;
+    setCountdown(null);
     if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
     rafRef.current = null;
     audioCtxRef.current?.close();
@@ -111,6 +119,7 @@ export default function RecorderClient() {
     // multiple times into one entry. They clear it by editing the textarea.
     setInterim("");
     setLog([]);
+    setCountdown(null);
     setStatus("connecting");
     try {
       const tokenRes = await fetch("/api/realtime-token");
@@ -155,7 +164,26 @@ export default function RecorderClient() {
       tick();
 
       const dc = pc.createDataChannel("oai-events");
-      dc.addEventListener("open", () => setStatus("live"));
+      dc.addEventListener("open", () => {
+        if (genRef.current !== myGen) return; // cancelled before the channel opened
+        setStatus("live");
+        // Now that the session is actually live, run a brief get-ready countdown.
+        // Audio is already being captured, so nothing is dropped — this just tells
+        // the user when to start talking. A plain local var (not state) drives the
+        // ticks so the updater stays pure.
+        let n = 3;
+        setCountdown(n);
+        countdownRef.current = setInterval(() => {
+          n -= 1;
+          if (n <= 0) {
+            if (countdownRef.current != null) clearInterval(countdownRef.current);
+            countdownRef.current = null;
+            setCountdown(null); // null => "Speak now"
+          } else {
+            setCountdown(n);
+          }
+        }, 800);
+      });
       dc.addEventListener("message", (e) => {
         try {
           handleEvent(JSON.parse(e.data));
@@ -240,8 +268,24 @@ export default function RecorderClient() {
         </div>
       )}
 
+      {status === "connecting" && (
+        <p className="-mt-3 text-center text-sm text-foreground/50">Connecting…</p>
+      )}
+
+      {countdown !== null && (
+        <p className="-mt-3 text-center text-5xl font-semibold tabular-nums" aria-live="assertive">
+          {countdown}
+        </p>
+      )}
+
+      {status === "live" && countdown === null && (
+        <p className="-mt-3 text-center text-sm font-medium text-green-600" aria-live="polite">
+          ● Speak now
+        </p>
+      )}
+
       {live && (
-        <p className="-mt-3 text-center text-xs text-foreground/40">
+        <p className="text-center text-xs text-foreground/40">
           press <kbd className="font-mono">Esc</kbd> to stop
         </p>
       )}
