@@ -16,6 +16,9 @@ import { appendSegment } from "./transcript";
 
 const OPENAI_CALLS_URL = "https://api.openai.com/v1/realtime/calls";
 
+// Inlined at build time from next.config.ts (PST, "MM/DD/YYYY HH:MM").
+const BUILD_TIME = process.env.NEXT_PUBLIC_BUILD_TIME;
+
 type Status = "idle" | "connecting" | "live" | "stopping" | "error";
 
 type LogLine = { id: number; type: string; text?: string };
@@ -244,9 +247,14 @@ export default function RecorderClient() {
     <main className="mx-auto flex min-h-full w-full max-w-2xl flex-1 flex-col gap-6 px-5 py-8">
       <header className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold tracking-tight">recountly</h1>
-        <span className="rounded-full border border-foreground/10 px-3 py-1 text-xs text-foreground/50">
-          {status}
-        </span>
+        <div className="flex items-center gap-3">
+          {BUILD_TIME && (
+            <span className="text-[10px] text-foreground/40 tabular-nums">{BUILD_TIME} PST</span>
+          )}
+          <span className="rounded-full border border-foreground/10 px-3 py-1 text-xs text-foreground/50">
+            {status}
+          </span>
+        </div>
       </header>
 
       <button
