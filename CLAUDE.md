@@ -32,7 +32,8 @@ this file is a distilled pointer to its decided constraints.
   Next.js APIs.
 
 ### Commands
-- `pnpm dev` — dev server (Turbopack) at http://localhost:3000
+- `pnpm dev` — dev server (Turbopack) at http://localhost:8255 (fixed port "TALK"
+  on a phone keypad — avoids the crowded :3000 and collisions with other local apps)
 - `pnpm build` — production build
 - `pnpm start` — serve the production build
 - `pnpm lint` — ESLint
