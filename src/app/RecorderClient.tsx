@@ -185,7 +185,7 @@ export default function RecorderClient() {
           } else {
             setCountdown(n);
           }
-        }, 800);
+        }, 500);
       });
       dc.addEventListener("message", (e) => {
         try {
