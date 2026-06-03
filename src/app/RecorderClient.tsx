@@ -28,6 +28,9 @@ export default function RecorderClient() {
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const logIdRef = useRef(0);
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const rafRef = useRef<number | null>(null);
+  const meterRef = useRef<HTMLDivElement | null>(null);
 
   const pushLog = useCallback((type: string, text?: string) => {
     logIdRef.current += 1;
@@ -36,6 +39,10 @@ export default function RecorderClient() {
   }, []);
 
   const cleanup = useCallback(() => {
+    if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
+    rafRef.current = null;
+    audioCtxRef.current?.close();
+    audioCtxRef.current = null;
     pcRef.current?.getSenders().forEach((s) => s.track?.stop());
     pcRef.current?.close();
     pcRef.current = null;
@@ -43,8 +50,14 @@ export default function RecorderClient() {
     streamRef.current = null;
   }, []);
 
-  const handleEvent = useCallback((event: { type?: string; delta?: string; transcript?: string }) => {
-    pushLog(event.type ?? "(no type)", event.delta ?? event.transcript);
+  const handleEvent = useCallback((event: {
+    type?: string;
+    delta?: string;
+    transcript?: string;
+    error?: { message?: string; code?: string; type?: string };
+  }) => {
+    const errText = event.error?.message ?? event.error?.code;
+    pushLog(event.type ?? "(no type)", event.delta ?? event.transcript ?? errText);
     switch (event.type) {
       case "conversation.item.input_audio_transcription.delta":
         if (typeof event.delta === "string") setInterim((prev) => prev + event.delta);
@@ -54,6 +67,11 @@ export default function RecorderClient() {
           setCommitted((prev) => (prev ? prev + " " : "") + event.transcript!.trim());
           setInterim("");
         }
+        break;
+      // Surface the reason so a failed segment isn't a silent dead-end.
+      case "conversation.item.input_audio_transcription.failed":
+      case "error":
+        if (errText) setErrorMsg(`transcription failed: ${errText}`);
         break;
     }
   }, [pushLog]);
@@ -76,6 +94,27 @@ export default function RecorderClient() {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
       stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+
+      // Live mic-level meter — visual proof the mic is actually capturing audio.
+      // Drives the bar via a ref (no re-render per frame).
+      const audioCtx = new AudioContext();
+      audioCtxRef.current = audioCtx;
+      const analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 256;
+      audioCtx.createMediaStreamSource(stream).connect(analyser);
+      const samples = new Uint8Array(analyser.frequencyBinCount);
+      const tick = () => {
+        analyser.getByteTimeDomainData(samples);
+        let sum = 0;
+        for (let i = 0; i < samples.length; i++) {
+          const v = (samples[i] - 128) / 128;
+          sum += v * v;
+        }
+        const level = Math.min(1, Math.sqrt(sum / samples.length) * 3);
+        if (meterRef.current) meterRef.current.style.transform = `scaleX(${level})`;
+        rafRef.current = requestAnimationFrame(tick);
+      };
+      tick();
 
       const dc = pc.createDataChannel("oai-events");
       dc.addEventListener("open", () => setStatus("live"));
@@ -131,6 +170,16 @@ export default function RecorderClient() {
       >
         {live ? "■ Stop" : "● Record"}
       </button>
+
+      {live && (
+        <div className="mx-auto h-1 w-24 overflow-hidden rounded-full bg-foreground/10" aria-hidden>
+          <div
+            ref={meterRef}
+            className="h-full w-full origin-left rounded-full bg-green-500 transition-transform duration-75 ease-out"
+            style={{ transform: "scaleX(0)" }}
+          />
+        </div>
+      )}
 
       {errorMsg && (
         <p className="rounded-lg border border-red-500/30 bg-red-500/5 px-4 py-3 text-sm text-red-500">
