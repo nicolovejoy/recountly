@@ -2,9 +2,18 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Project status: Phase 0 complete (scaffold + deploy)
+## Project status: Phase 1 core working (live transcription)
 
-The app is scaffolded and deployed. Next up is **Phase 1** (live transcription — the core bet).
+Live transcription works end-to-end: speak and words appear via a direct browser→OpenAI
+WebRTC connection (mic meter + in-app error surfacing in place). Persistence is still
+stubbed. **Next:** build the editable type-and-talk transcript — full plan at
+`docs/superpowers/plans/2026-06-03-editable-transcript.md` — then Phase 2 (persistence).
+
+⚠️ Gotcha learned the hard way: the OpenAI `client_secrets` mint endpoint does **not**
+validate the transcription model name. A bogus name (we had `gpt-realtime-whisper`) mints
+a token fine, then `/v1/realtime/calls` hangs ~15s → Cloudflare 504 with no CORS headers →
+the browser misreports it as a CORS error. Verified-good models: `gpt-4o-transcribe`,
+`gpt-4o-mini-transcribe`, `whisper-1`.
 
 **Read `recountly-build-prompt.md` in full before starting.** It is the authoritative spec;
 this file is a distilled pointer to its decided constraints.
