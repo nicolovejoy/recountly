@@ -14,14 +14,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { appendSegment } from "./transcript";
 import { connectRealtimeSession } from "./realtime";
-import { recordingLight, type RecordingStatus } from "./recordingLight";
+import { formatElapsed } from "./elapsed";
 
 const OPENAI_CALLS_URL = "https://api.openai.com/v1/realtime/calls";
 
 // Inlined at build time from next.config.ts (PST, "MM/DD/YYYY HH:MM").
 const BUILD_TIME = process.env.NEXT_PUBLIC_BUILD_TIME;
 
-type Status = RecordingStatus;
+type Status = "idle" | "connecting" | "live" | "stopping" | "error";
 
 type LogLine = { id: number; type: string; text?: string };
 
@@ -30,18 +30,21 @@ export default function RecorderClient() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [interim, setInterim] = useState("");
   const [log, setLog] = useState<LogLine[]>([]);
+  const [elapsedSec, setElapsedSec] = useState(0);
 
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const logIdRef = useRef(0);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const rafRef = useRef<number | null>(null);
-  const meterRef = useRef<HTMLDivElement | null>(null);
+  const meterRef = useRef<HTMLSpanElement | null>(null);
   const textRef = useRef<HTMLTextAreaElement | null>(null);
   // Cancellation token for the async start() sequence. stop() bumps it; each
   // await in start() checks it and bails if a newer start/stop has superseded
   // this attempt — so an Esc mid-connect can't run code against a torn-down pc.
   const genRef = useRef(0);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const recordStartRef = useRef(0);
 
   const pushLog = useCallback((type: string, text?: string) => {
     logIdRef.current += 1;
@@ -50,6 +53,9 @@ export default function RecorderClient() {
   }, []);
 
   const cleanup = useCallback(() => {
+    if (timerRef.current != null) clearInterval(timerRef.current);
+    timerRef.current = null;
+    setElapsedSec(0);
     if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
     rafRef.current = null;
     audioCtxRef.current?.close();
@@ -172,7 +178,12 @@ export default function RecorderClient() {
           onDataChannel: (dc) => {
             dc.addEventListener("open", () => {
               if (genRef.current !== myGen) return; // cancelled before the channel opened
-              setStatus("live"); // stoplight flips to red — on air
+              setStatus("live"); // button goes red — on air
+              recordStartRef.current = Date.now();
+              setElapsedSec(0);
+              timerRef.current = setInterval(() => {
+                setElapsedSec(Math.floor((Date.now() - recordStartRef.current) / 1000));
+              }, 250);
             });
             dc.addEventListener("message", (e) => {
               try {
@@ -202,7 +213,6 @@ export default function RecorderClient() {
   }, [cleanup]);
 
   const live = status === "live" || status === "connecting";
-  const light = recordingLight(status);
 
   // Esc ends (or cancels) recording from anywhere on the page — including while
   // typing in the transcript. Listen on the document so a focused textarea can't
@@ -233,48 +243,57 @@ export default function RecorderClient() {
         </div>
       </header>
 
-      {/* The traffic light IS the control — tap to record/stop. Lamps run
-          green → orange → red (red on the right): green = ready, orange =
-          connecting, red (pulsing) = live/on-air. */}
-      <button
-        onClick={live ? stop : start}
-        aria-label={live ? "Stop recording" : "Start recording"}
-        className="mx-auto flex cursor-pointer items-center gap-4 rounded-full border border-foreground/15 bg-foreground/[0.04] px-7 py-4 transition-colors hover:bg-foreground/[0.08]"
-      >
-        <span className="flex items-center gap-3" aria-hidden>
-          <span
-            className={`h-7 w-7 rounded-full bg-green-500 transition-opacity ${light.lamp === "green" ? "opacity-100 shadow-lg shadow-green-500/50" : "opacity-20"}`}
-          />
-          <span
-            className={`h-7 w-7 rounded-full bg-orange-500 transition-opacity ${light.lamp === "orange" ? "opacity-100 shadow-lg shadow-orange-500/50" : "opacity-20"}`}
-          />
-          <span
-            className={`h-7 w-7 rounded-full bg-red-500 transition-opacity ${light.lamp === "red" ? "opacity-100 animate-pulse shadow-lg shadow-red-500/60" : "opacity-20"}`}
-          />
-        </span>
-        <span
-          className="min-w-24 whitespace-nowrap text-left text-lg font-medium text-foreground/70"
-          aria-live="polite"
+      {/* One circular Record/Stop button — the universal recorder affordance.
+          Idle/error: red dot = tap to record. Live: red, pulsing ring, stop
+          square = tap to stop, with REC timer + live mic-level bar. */}
+      <div className="flex flex-col items-center gap-3">
+        <button
+          onClick={live ? stop : start}
+          aria-label={live ? "Stop recording" : "Start recording"}
+          className={`relative flex h-20 w-20 cursor-pointer items-center justify-center rounded-full border-2 transition-colors ${
+            status === "live"
+              ? "border-red-600 bg-red-600"
+              : status === "connecting"
+                ? "animate-pulse border-foreground/30 bg-foreground/[0.04]"
+                : "border-foreground/20 bg-foreground/[0.04] hover:bg-foreground/[0.08]"
+          }`}
         >
-          {light.label}
-        </span>
-      </button>
+          {status === "live" && (
+            <span className="absolute inset-0 animate-ping rounded-full bg-red-600/40" aria-hidden />
+          )}
+          {status === "live" ? (
+            <span className="relative h-6 w-6 rounded-sm bg-white" aria-hidden />
+          ) : (
+            <span className="relative h-7 w-7 rounded-full bg-red-600" aria-hidden />
+          )}
+        </button>
 
-      {live && (
-        <div className="mx-auto h-1 w-24 overflow-hidden rounded-full bg-foreground/10" aria-hidden>
-          <div
-            ref={meterRef}
-            className="h-full w-full origin-left rounded-full bg-green-500 transition-transform duration-75 ease-out"
-            style={{ transform: "scaleX(0)" }}
-          />
+        <div className="flex h-5 items-center gap-3 text-sm">
+          {status === "live" ? (
+            <>
+              <span className="font-medium text-red-500">● REC</span>
+              <span className="tabular-nums text-foreground/70">{formatElapsed(elapsedSec)}</span>
+              <span className="h-1 w-20 overflow-hidden rounded-full bg-foreground/10" aria-hidden>
+                <span
+                  ref={meterRef}
+                  className="block h-full w-full origin-left rounded-full bg-green-500 transition-transform duration-75 ease-out"
+                  style={{ transform: "scaleX(0)" }}
+                />
+              </span>
+            </>
+          ) : status === "connecting" ? (
+            <span className="text-foreground/50">Connecting…</span>
+          ) : (
+            <span className="text-foreground/40">Tap to record</span>
+          )}
         </div>
-      )}
 
-      {live && (
-        <p className="text-center text-xs text-foreground/40">
-          press <kbd className="font-mono">Esc</kbd> to stop
-        </p>
-      )}
+        {live && (
+          <p className="text-xs text-foreground/40">
+            press <kbd className="font-mono">Esc</kbd> to stop
+          </p>
+        )}
+      </div>
 
       {errorMsg && (
         <p className="rounded-lg border border-red-500/30 bg-red-500/5 px-4 py-3 text-sm text-red-500">
