@@ -9,8 +9,18 @@ WebRTC connection (mic meter + in-app error surfacing in place). The transcript 
 editable type-and-talk `<textarea>` — finalized spoken segments append to the end via the
 unit-tested `appendSegment` helper (`src/app/transcript.ts`) without disturbing the user's
 caret; Enter inserts a newline instead of toggling recording. Verified by real speech.
-Persistence is still stubbed. **Next:** Phase 2 (persistence — MediaRecorder → Vercel Blob
-→ Neon entry, newest-first list).
+The recorder control is now the conventional voice-recorder pattern — one circular
+Record/Stop button (red dot → tap to record; red, pulsing, stop square → tap to stop) with
+a `● REC m:ss` timer and the live mic-level bar (replaced the earlier traffic-light idea).
+Persistence is still stubbed.
+
+**Next (UI refinement):** turn Stop into a resume-able **Pause** — keep the OpenAI realtime
+session alive while suspending audio + the timer, then resume (design questions: mute track
+vs. close/reopen, idle-session timeout, timer + `gen` cancellation behavior; brainstorm
+before building). Then a **save & name** step (folds into Phase 2).
+
+**Next (core):** Phase 2 (persistence — MediaRecorder → Vercel Blob → Neon entry,
+newest-first list).
 
 ⚠️ Gotcha learned the hard way: the OpenAI `client_secrets` mint endpoint does **not**
 validate the transcription model name. A bogus name (we had `gpt-realtime-whisper`) mints
