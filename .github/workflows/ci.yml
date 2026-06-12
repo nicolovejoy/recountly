@@ -1,0 +1,45 @@
+name: CI
+
+# Lint, test, and build on every push and PR. Mirrors the local checks so a
+# green branch is genuinely mergeable. Pinned to Node 20 + pnpm 9 to match the
+# owner's local environment (see CLAUDE.md — pnpm 10+ needs Node 22.13+, and
+# local runs Node 20; the lockfile is v9.0).
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+# A newer push to the same branch/PR cancels an in-flight run.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Test
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
