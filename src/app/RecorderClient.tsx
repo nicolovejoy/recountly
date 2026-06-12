@@ -15,6 +15,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { appendSegment } from "@/lib/transcript";
 import { connectRealtimeSession } from "@/lib/realtime";
 import { formatElapsed } from "@/lib/elapsed";
+import { parseRealtimeEvent, type RealtimeEvent } from "@/lib/realtime-events";
 
 const OPENAI_CALLS_URL = "https://api.openai.com/v1/realtime/calls";
 
@@ -67,47 +68,47 @@ export default function RecorderClient() {
     streamRef.current = null;
   }, []);
 
-  const handleEvent = useCallback((event: {
-    type?: string;
-    delta?: string;
-    transcript?: string;
-    error?: { message?: string; code?: string; type?: string };
-  }) => {
-    const errText = event.error?.message ?? event.error?.code;
-    pushLog(event.type ?? "(no type)", event.delta ?? event.transcript ?? errText);
+  const handleEvent = useCallback((event: RealtimeEvent) => {
     switch (event.type) {
       case "conversation.item.input_audio_transcription.delta":
-        if (typeof event.delta === "string") setInterim((prev) => prev + event.delta);
+        pushLog(event.type, event.delta);
+        setInterim((prev) => prev + event.delta);
         break;
-      case "conversation.item.input_audio_transcription.completed":
-        if (typeof event.transcript === "string") {
-          // Append the finalized segment to the editable textarea WITHOUT
-          // disturbing the user's caret. We only ever append at the end, so an
-          // earlier selection stays valid and is restored verbatim. If the caret
-          // was already at the end (or the textarea is unfocused), follow along
-          // and scroll to the bottom.
-          const ta = textRef.current;
-          if (ta) {
-            const selStart = ta.selectionStart;
-            const selEnd = ta.selectionEnd;
-            const wasAtEnd =
-              selStart === ta.value.length && selEnd === ta.value.length;
-            ta.value = appendSegment(ta.value, event.transcript);
-            if (wasAtEnd) {
-              ta.selectionStart = ta.selectionEnd = ta.value.length;
-              ta.scrollTop = ta.scrollHeight;
-            } else {
-              ta.selectionStart = selStart;
-              ta.selectionEnd = selEnd;
-            }
+      case "conversation.item.input_audio_transcription.completed": {
+        pushLog(event.type, event.transcript);
+        // Append the finalized segment to the editable textarea WITHOUT
+        // disturbing the user's caret. We only ever append at the end, so an
+        // earlier selection stays valid and is restored verbatim. If the caret
+        // was already at the end (or the textarea is unfocused), follow along
+        // and scroll to the bottom.
+        const ta = textRef.current;
+        if (ta) {
+          const selStart = ta.selectionStart;
+          const selEnd = ta.selectionEnd;
+          const wasAtEnd =
+            selStart === ta.value.length && selEnd === ta.value.length;
+          ta.value = appendSegment(ta.value, event.transcript);
+          if (wasAtEnd) {
+            ta.selectionStart = ta.selectionEnd = ta.value.length;
+            ta.scrollTop = ta.scrollHeight;
+          } else {
+            ta.selectionStart = selStart;
+            ta.selectionEnd = selEnd;
           }
-          setInterim("");
         }
+        setInterim("");
         break;
+      }
       // Surface the reason so a failed segment isn't a silent dead-end.
       case "conversation.item.input_audio_transcription.failed":
-      case "error":
+      case "error": {
+        const errText = event.error?.message ?? event.error?.code;
+        pushLog(event.type, errText);
         if (errText) setErrorMsg(`transcription failed: ${errText}`);
+        break;
+      }
+      case "unknown":
+        pushLog(event.rawType, event.text);
         break;
     }
   }, [pushLog]);
@@ -186,11 +187,7 @@ export default function RecorderClient() {
               }, 250);
             });
             dc.addEventListener("message", (e) => {
-              try {
-                handleEvent(JSON.parse(e.data));
-              } catch {
-                pushLog("(unparseable)", String(e.data).slice(0, 80));
-              }
+              handleEvent(parseRealtimeEvent(String(e.data)));
             });
           },
         },
