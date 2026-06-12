@@ -14,11 +14,16 @@
 
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import { connectRealtimeSession } from "@/lib/realtime";
-import { totalElapsedSec } from "@/lib/elapsed";
+import { totalElapsedSec, bankSegment } from "@/lib/elapsed";
 import { parseRealtimeEvent, type RealtimeEvent } from "@/lib/realtime-events";
-import { transition, type RecorderStatus } from "@/lib/recorder-state";
+import { transition, type RecorderStatus, type RecorderEvent } from "@/lib/recorder-state";
 
 const OPENAI_CALLS_URL = "https://api.openai.com/v1/realtime/calls";
+
+// On pause we stop the mic immediately (privacy) but hold the peer connection
+// open this long so the in-flight segment's `completed` event can still land
+// before we tear down. Resume cancels a pending flush if it fires first.
+const FLUSH_MS = 1500;
 
 export type LogLine = { id: number; type: string; text?: string };
 
@@ -30,7 +35,13 @@ export interface Recorder {
   errorMsg: string | null;
   /** Raw event log, newest first (debugging window — see EventLog). */
   log: LogLine[];
+  /** Begin a fresh recording (clears the timer + event log, keeps editor text). */
   start: () => void;
+  /** Suspend: bank elapsed, mic off now, flush the in-flight segment, then close. */
+  pause: () => void;
+  /** Reconnect a paused session; the timer continues from the banked time. */
+  resume: () => void;
+  /** Finish: return to idle, keep the transcript text. */
   stop: () => void;
   /** Attach to the mic-level bar span; driven per-frame without re-renders. */
   meterRef: RefObject<HTMLSpanElement | null>;
@@ -57,6 +68,8 @@ export function useRecorder(opts: {
   // this attempt — so an Esc mid-connect can't run code against a torn-down pc.
   const genRef = useRef(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Pending pause-flush teardown; cleared if resume/stop happens first.
+  const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Cumulative recording time (see totalElapsedSec): accumulatedMsRef banks
   // finished segments (always 0 until pause/resume lands); segmentStartRef is
   // the running segment's start, or null when not live.
@@ -83,6 +96,8 @@ export function useRecorder(opts: {
   // KEEPING the banked time (pause = closeConnection + bank elapsed; full stop
   // = both halves).
   const closeConnection = useCallback(() => {
+    if (flushTimerRef.current != null) clearTimeout(flushTimerRef.current);
+    flushTimerRef.current = null;
     if (timerRef.current != null) clearInterval(timerRef.current);
     timerRef.current = null;
     if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
@@ -156,17 +171,20 @@ export function useRecorder(opts: {
     tick();
   }, []);
 
-  const start = useCallback(async () => {
-    // Capture this attempt's generation. If stop() (or a newer start) bumps
-    // genRef while we're awaiting, connectRealtimeSession sees isStale() and bails.
+  // The shared connection sequence, used by both start (trigger START) and
+  // resume (trigger RESUME). It does NOT reset the timer or log — start/resume
+  // each decide what to preserve before calling in. On a successful connect the
+  // running segment's start is stamped and the interval resumes counting from
+  // whatever is already banked in accumulatedMsRef (0 for start, prior elapsed
+  // for resume).
+  const connect = useCallback(async (trigger: RecorderEvent) => {
+    // Capture this attempt's generation. If stop()/pause() (or a newer connect)
+    // bumps genRef while we're awaiting, connectRealtimeSession sees isStale()
+    // and bails — so an Esc mid-connect can't run code against a torn-down pc.
     const myGen = ++genRef.current;
     setErrorMsg(null);
-    // NOTE: the transcript editor is NOT cleared here — the user may have
-    // pre-typed hard-to-transcribe words before tapping Record, and may record
-    // multiple times into one entry. They clear it by editing the textarea.
     setInterim("");
-    setLog([]);
-    setStatus((s) => transition(s, "START"));
+    setStatus((s) => transition(s, trigger));
     try {
       const result = await connectRealtimeSession(
         {
@@ -222,12 +240,58 @@ export function useRecorder(opts: {
     }
   }, [cleanup, handleEvent, pushLog, startMeter]);
 
+  const start = useCallback(() => {
+    // Fresh recording: clear the event log and zero the timer. The transcript
+    // editor is intentionally NOT cleared — the user may have pre-typed
+    // hard-to-transcribe words, and may record multiple times into one entry.
+    setLog([]);
+    resetTimer();
+    void connect("START");
+  }, [connect, resetTimer]);
+
+  const pause = useCallback(() => {
+    genRef.current += 1; // stop any in-flight connect from touching the pc
+    // Bank the running segment so the frozen timer reads correctly and resume
+    // continues from here.
+    accumulatedMsRef.current = bankSegment(
+      accumulatedMsRef.current,
+      segmentStartRef.current,
+      Date.now(),
+    );
+    segmentStartRef.current = null;
+    setStatus((s) => transition(s, "PAUSE"));
+    setInterim("");
+    setElapsedSec(totalElapsedSec(accumulatedMsRef.current, null, Date.now()));
+    // Freeze the timer + meter immediately, and cut the mic NOW for privacy.
+    if (timerRef.current != null) clearInterval(timerRef.current);
+    timerRef.current = null;
+    if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
+    rafRef.current = null;
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    // Keep the pc open briefly so the in-flight segment's completed event can
+    // still land via the message listener, then fully tear the connection down.
+    flushTimerRef.current = setTimeout(() => {
+      flushTimerRef.current = null;
+      closeConnection();
+    }, FLUSH_MS);
+  }, [closeConnection]);
+
+  const resume = useCallback(() => {
+    // Tear down any lingering connection first: if resume fires DURING the flush
+    // window the old pc is still open, so closeConnection (which also cancels the
+    // pending flush) prevents leaking it. It leaves the banked time and log
+    // intact — only resetTimer would zero those — so the reconnect continues
+    // the same entry.
+    closeConnection();
+    void connect("RESUME");
+  }, [closeConnection, connect]);
+
   const stop = useCallback(() => {
-    genRef.current += 1; // invalidate any in-flight start() so it stops touching the pc
+    genRef.current += 1; // invalidate any in-flight connect so it stops touching the pc
     setStatus((s) => transition(s, "DONE"));
     cleanup();
     setInterim("");
   }, [cleanup]);
 
-  return { status, elapsedSec, interim, errorMsg, log, start, stop, meterRef };
+  return { status, elapsedSec, interim, errorMsg, log, start, pause, resume, stop, meterRef };
 }

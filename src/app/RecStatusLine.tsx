@@ -33,6 +33,11 @@ export default function RecStatusLine({
             />
           </span>
         </>
+      ) : status === "paused" ? (
+        <>
+          <span className="font-medium text-amber-500">❚❚ PAUSED</span>
+          <span className="tabular-nums text-foreground/70">{formatElapsed(elapsedSec)}</span>
+        </>
       ) : status === "connecting" ? (
         <span className="text-foreground/50">Connecting…</span>
       ) : (

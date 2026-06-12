@@ -6,6 +6,7 @@
 // keeps page-level UI policy (the Esc shortcut, header chrome).
 
 import { useEffect, useRef } from "react";
+import { primaryAction } from "@/lib/recorder-state";
 import { useRecorder } from "./useRecorder";
 import TranscriptEditor, { type TranscriptEditorHandle } from "./TranscriptEditor";
 import RecordButton from "./RecordButton";
@@ -17,27 +18,39 @@ const BUILD_TIME = process.env.NEXT_PUBLIC_BUILD_TIME;
 
 export default function RecorderClient() {
   const editorRef = useRef<TranscriptEditorHandle | null>(null);
-  const { status, elapsedSec, interim, errorMsg, log, start, stop, meterRef } =
+  const { status, elapsedSec, interim, errorMsg, log, start, pause, resume, stop, meterRef } =
     useRecorder({
       onSegment: (segment) => editorRef.current?.append(segment),
     });
 
-  const live = status === "live" || status === "connecting";
+  // The one circular control's action is derived from status (single tested
+  // source of truth — see primaryAction).
+  const onPressPrimary = () => {
+    switch (primaryAction(status)) {
+      case "start": return start();
+      case "cancel": return stop();
+      case "pause": return pause();
+      case "resume": return resume();
+    }
+  };
 
-  // Esc ends (or cancels) recording from anywhere on the page — including while
-  // typing in the transcript. Listen on the document so a focused textarea can't
-  // swallow the key. Only bound while live, so Esc is free for normal use when idle.
+  const inSession = status === "connecting" || status === "live" || status === "paused";
+
+  // Esc, from anywhere on the page (incl. while typing in the transcript —
+  // listen on the document so a focused textarea can't swallow it): pause while
+  // live, cancel an in-flight connect, do nothing once paused (Done is explicit).
   useEffect(() => {
-    if (!live) return;
+    if (status !== "live" && status !== "connecting") return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.preventDefault();
-        stop();
+        if (status === "live") pause();
+        else stop(); // connecting → cancel
       }
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [live, stop]);
+  }, [status, pause, stop]);
 
   return (
     <main className="mx-auto flex min-h-full w-full max-w-2xl flex-1 flex-col gap-6 px-5 py-8">
@@ -54,11 +67,19 @@ export default function RecorderClient() {
       </header>
 
       <div className="flex flex-col items-center gap-3">
-        <RecordButton status={status} onPress={live ? stop : start} />
+        <RecordButton status={status} onPress={onPressPrimary} />
         <RecStatusLine status={status} elapsedSec={elapsedSec} meterRef={meterRef} />
-        {live && (
+        {inSession && (
+          <button
+            onClick={stop}
+            className="rounded-full border border-foreground/20 px-4 py-1 text-sm text-foreground/70 transition-colors hover:bg-foreground/[0.06]"
+          >
+            Done
+          </button>
+        )}
+        {status === "live" && (
           <p className="text-xs text-foreground/40">
-            press <kbd className="font-mono">Esc</kbd> to stop
+            press <kbd className="font-mono">Esc</kbd> to pause
           </p>
         )}
       </div>
