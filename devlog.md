@@ -40,11 +40,34 @@ Branch: `claude/repo-remote-work-assessment-y0m14t`.
 record, type mid-transcript while speaking (caret must stay put; end-follow scrolling
 works), Esc-mid-connect cancel, stop and re-record into the same entry.
 
+**Pause/resume BUILT (same session, on the refactored base; needs owner real-speech verification):**
+- `bankSegment` (elapsed.ts) + `primaryAction` (recorder-state.ts) added test-first
+  (9 tests). `primaryAction(status)` is the single tested source of truth for the
+  circular control's action — start/cancel/pause/resume — so the affordance can't go
+  ambiguous (the old "no-text" bug's root cause).
+- `useRecorder` gains `pause()`/`resume()`; `start`/`resume` share an extracted
+  `connect(trigger)`. pause() banks the segment, cuts the mic immediately (privacy),
+  freezes timer+meter, holds the pc open `FLUSH_MS=1500` so the in-flight `completed`
+  lands, then tears down. resume() closes any lingering connection first (guards a
+  pc leak if resumed mid-flush) and reconnects with a fresh token; timer continues
+  from banked time, transcript+log carry over. stop()=Done is separate (live & paused).
+- UI: pause bars (live) / amber play-triangle (paused) on the circular button; Done
+  pill in-session; Esc pauses while live, cancels while connecting. RecStatusLine has
+  a PAUSED row. 62 tests total, green; lint + build clean.
+
+⚠️ Unverified by real speech (no mic/keys in the remote container) — the imperative
+flush/reconnect TIMING in particular: does a fresh-token reconnect reliably re-enter a
+live transcription session, and does the 1.5s window actually catch the last segment?
+Owner to smoke-test: record → pause (last words land? mic indicator off?) → resume
+(timer continues, words flow again) → Done (text kept); also resume-during-flush and
+Esc-mid-connect.
+
 Open threads for next session:
-- **Build pause/resume** on the refactored base: UI (button → ⏸ while live, Done action,
-  Esc → pause), `pause()`/`resume()` in useRecorder (bank elapsed + closeConnection /
-  re-run start), the 1.5s flush window. Real-speech acceptance by owner.
+- Owner real-speech acceptance of pause/resume (above); tune FLUSH_MS if the tail clips.
 - Suggested while remote-capable: GitHub Actions CI (lint + test + build) — none exists.
+- Then Phase 2 (persistence): MediaRecorder on the mic stream → Vercel Blob → Neon entry,
+  newest-first list. TranscriptEditor.getValue() is the read side already in place; Done
+  is the natural save trigger.
 
 ## 2026-06-04 — Circular Record/Stop button; "no-text" bug closed
 

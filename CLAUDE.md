@@ -9,22 +9,28 @@ WebRTC connection (mic meter + in-app error surfacing in place). The transcript 
 editable type-and-talk `<textarea>` — finalized spoken segments append to the end via the
 unit-tested `appendSegment`/`planAppend` helpers (`src/lib/transcript.ts`) without
 disturbing the user's caret; Enter inserts a newline instead of toggling recording.
-Verified by real speech. The recorder control is now the conventional voice-recorder
-pattern — one circular Record/Stop button (red dot → tap to record; red, pulsing, stop
-square → tap to stop) with a `● REC m:ss` timer and the live mic-level bar (replaced the
-earlier traffic-light idea). Persistence is still stubbed.
+Verified by real speech. The recorder control is one circular button whose action follows
+status via the tested `primaryAction` (record → pause → resume), with a `● REC m:ss` /
+`PAUSED` timer line and the live mic-level bar. Persistence is still stubbed.
 
 Structure (post-refactor, 2026-06-12): pure node-tested logic lives in `src/lib/`
-(realtime connection orchestration, typed event parsing, the recorder state machine —
-with the `paused` state pre-built — cumulative timer math, caret planning); all
+(realtime connection orchestration, typed event parsing, the recorder state machine,
+cumulative timer math incl. `bankSegment`, caret planning, `primaryAction`); all
 imperative session state lives in the `useRecorder` hook; `RecorderClient` is a thin
 composition root over presentational `RecordButton`/`RecStatusLine`/`TranscriptEditor`/
-`EventLog` components. 53 vitest tests; new logic is written test-first.
+`EventLog` components. 62 vitest tests; new logic is written test-first.
 
-**Next (UI refinement):** build the resume-able **Pause** (design DECIDED 2026-06-12, see
-devlog): close-connection-on-pause / reconnect-on-resume (NOT keep-alive mute), a ~1.5s
-flush window on pause so the in-flight segment lands, Esc = pause, separate Done action
-that returns to idle keeping the text. Then a **save & name** step (folds into Phase 2).
+**Resume-able Pause is BUILT (2026-06-12) but NOT yet real-speech verified** (no mic in
+the build container). Design as shipped: close-connection-on-pause / reconnect-on-resume
+(NOT keep-alive mute); pause cuts the mic immediately then holds the pc open `FLUSH_MS`
+(1.5s) so the in-flight segment lands; `bankSegment` freezes/continues the timer; Esc =
+pause; separate Done (stop) returns to idle keeping the text. Owner must smoke-test the
+flush/reconnect timing (does a fresh-token reconnect re-enter a live session; does the
+window catch the tail) and tune `FLUSH_MS` if needed.
+
+**Next:** owner verification of pause/resume, then a **save & name** step folding into
+Phase 2. `TranscriptEditor.getValue()` is the read side already in place; Done is the
+natural save trigger.
 
 **Next (core):** Phase 2 (persistence — MediaRecorder → Vercel Blob → Neon entry,
 newest-first list).
