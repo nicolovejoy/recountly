@@ -14,7 +14,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { appendSegment } from "@/lib/transcript";
 import { connectRealtimeSession } from "@/lib/realtime";
-import { formatElapsed } from "@/lib/elapsed";
+import { formatElapsed, totalElapsedSec } from "@/lib/elapsed";
 import { parseRealtimeEvent, type RealtimeEvent } from "@/lib/realtime-events";
 import { transition, type RecorderStatus } from "@/lib/recorder-state";
 
@@ -44,7 +44,11 @@ export default function RecorderClient() {
   // this attempt — so an Esc mid-connect can't run code against a torn-down pc.
   const genRef = useRef(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const recordStartRef = useRef(0);
+  // Cumulative recording time (see totalElapsedSec): accumulatedMsRef banks
+  // finished segments (always 0 until pause/resume lands); segmentStartRef is
+  // the running segment's start, or null when not live.
+  const accumulatedMsRef = useRef(0);
+  const segmentStartRef = useRef<number | null>(null);
 
   const pushLog = useCallback((type: string, text?: string) => {
     logIdRef.current += 1;
@@ -55,6 +59,8 @@ export default function RecorderClient() {
   const cleanup = useCallback(() => {
     if (timerRef.current != null) clearInterval(timerRef.current);
     timerRef.current = null;
+    accumulatedMsRef.current = 0;
+    segmentStartRef.current = null;
     setElapsedSec(0);
     if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
     rafRef.current = null;
@@ -179,10 +185,11 @@ export default function RecorderClient() {
             dc.addEventListener("open", () => {
               if (genRef.current !== myGen) return; // cancelled before the channel opened
               setStatus((s) => transition(s, "CONNECTED")); // button goes red — on air
-              recordStartRef.current = Date.now();
-              setElapsedSec(0);
+              segmentStartRef.current = Date.now();
               timerRef.current = setInterval(() => {
-                setElapsedSec(Math.floor((Date.now() - recordStartRef.current) / 1000));
+                setElapsedSec(
+                  totalElapsedSec(accumulatedMsRef.current, segmentStartRef.current, Date.now()),
+                );
               }, 250);
             });
             dc.addEventListener("message", (e) => {
