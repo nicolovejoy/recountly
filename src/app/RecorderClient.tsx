@@ -16,18 +16,17 @@ import { appendSegment } from "@/lib/transcript";
 import { connectRealtimeSession } from "@/lib/realtime";
 import { formatElapsed } from "@/lib/elapsed";
 import { parseRealtimeEvent, type RealtimeEvent } from "@/lib/realtime-events";
+import { transition, type RecorderStatus } from "@/lib/recorder-state";
 
 const OPENAI_CALLS_URL = "https://api.openai.com/v1/realtime/calls";
 
 // Inlined at build time from next.config.ts (PST, "MM/DD/YYYY HH:MM").
 const BUILD_TIME = process.env.NEXT_PUBLIC_BUILD_TIME;
 
-type Status = "idle" | "connecting" | "live" | "stopping" | "error";
-
 type LogLine = { id: number; type: string; text?: string };
 
 export default function RecorderClient() {
-  const [status, setStatus] = useState<Status>("idle");
+  const [status, setStatus] = useState<RecorderStatus>("idle");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [interim, setInterim] = useState("");
   const [log, setLog] = useState<LogLine[]>([]);
@@ -146,7 +145,7 @@ export default function RecorderClient() {
     // multiple times into one entry. They clear it by editing the textarea.
     setInterim("");
     setLog([]);
-    setStatus("connecting");
+    setStatus((s) => transition(s, "START"));
     try {
       const result = await connectRealtimeSession(
         {
@@ -179,7 +178,7 @@ export default function RecorderClient() {
           onDataChannel: (dc) => {
             dc.addEventListener("open", () => {
               if (genRef.current !== myGen) return; // cancelled before the channel opened
-              setStatus("live"); // button goes red — on air
+              setStatus((s) => transition(s, "CONNECTED")); // button goes red — on air
               recordStartRef.current = Date.now();
               setElapsedSec(0);
               timerRef.current = setInterval(() => {
@@ -196,17 +195,16 @@ export default function RecorderClient() {
     } catch (err) {
       if (genRef.current !== myGen) return; // a cancelled attempt's throw isn't a real error
       setErrorMsg(err instanceof Error ? err.message : String(err));
-      setStatus("error");
+      setStatus((s) => transition(s, "FAIL"));
       cleanup();
     }
   }, [cleanup, handleEvent, pushLog, startMeter]);
 
   const stop = useCallback(() => {
     genRef.current += 1; // invalidate any in-flight start() so it stops touching the pc
-    setStatus("stopping");
+    setStatus((s) => transition(s, "DONE"));
     cleanup();
     setInterim("");
-    setStatus("idle");
   }, [cleanup]);
 
   const live = status === "live" || status === "connecting";
