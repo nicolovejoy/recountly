@@ -55,3 +55,25 @@ export function transition(status: RecorderStatus, event: RecorderEvent): Record
   }
   return status;
 }
+
+// What the one circular control does when tapped, per status — the single
+// source of truth for the primary affordance. "cancel" aborts an in-flight
+// connect (treated as DONE by the machine). Keeping this here, beside the
+// transition table and unit-tested, is what stops the control from going
+// ambiguous again (the old "no-text" bug's root cause was a control that
+// didn't reliably start a recording).
+export type PrimaryAction = "start" | "cancel" | "pause" | "resume";
+
+export function primaryAction(status: RecorderStatus): PrimaryAction {
+  switch (status) {
+    case "idle":
+    case "error":
+      return "start";
+    case "connecting":
+      return "cancel";
+    case "live":
+      return "pause";
+    case "paused":
+      return "resume";
+  }
+}

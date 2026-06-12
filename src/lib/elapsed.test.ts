@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { formatElapsed, totalElapsedSec } from "./elapsed";
+import { formatElapsed, totalElapsedSec, bankSegment } from "./elapsed";
 
 describe("formatElapsed", () => {
   it("formats zero as 0:00", () => {
@@ -60,5 +60,27 @@ describe("totalElapsedSec", () => {
 
   it("clamps clock skew (now before segment start) to the banked time", () => {
     expect(totalElapsedSec(10_000, T0 + 5_000, T0)).toBe(10);
+  });
+});
+
+// bankSegment folds the currently-running segment into the accumulator — what
+// pause does so the frozen timer reads correctly and resume continues from it.
+describe("bankSegment", () => {
+  const T0 = 1_750_000_000_000;
+
+  it("adds the running segment to the accumulator", () => {
+    expect(bankSegment(60_000, T0, T0 + 5_000)).toBe(65_000);
+  });
+
+  it("returns the accumulator unchanged when nothing is running", () => {
+    expect(bankSegment(60_000, null, T0)).toBe(60_000);
+  });
+
+  it("banks from zero on a first pause", () => {
+    expect(bankSegment(0, T0, T0 + 3_200)).toBe(3_200);
+  });
+
+  it("clamps a skewed clock (now before start) to no negative contribution", () => {
+    expect(bankSegment(10_000, T0 + 5_000, T0)).toBe(10_000);
   });
 });

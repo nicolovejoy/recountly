@@ -50,3 +50,20 @@ describe("transition", () => {
     expect(resumed).toBe("live");
   });
 });
+
+// primaryAction maps the current status to what the one circular button does
+// when tapped — the single source of truth for the control, so an ambiguous
+// affordance (the old "no-text" bug's root cause) can't creep back in.
+import { primaryAction } from "./recorder-state";
+
+describe("primaryAction", () => {
+  it.each([
+    ["idle", "start"],
+    ["error", "start"],
+    ["connecting", "cancel"],
+    ["live", "pause"],
+    ["paused", "resume"],
+  ] as const)("%s → %s", (status, action) => {
+    expect(primaryAction(status)).toBe(action);
+  });
+});
