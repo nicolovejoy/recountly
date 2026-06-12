@@ -12,9 +12,9 @@
 // while spoken segments append to the end without disturbing the caret.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { appendSegment } from "./transcript";
-import { connectRealtimeSession } from "./realtime";
-import { formatElapsed } from "./elapsed";
+import { appendSegment } from "@/lib/transcript";
+import { connectRealtimeSession } from "@/lib/realtime";
+import { formatElapsed } from "@/lib/elapsed";
 
 const OPENAI_CALLS_URL = "https://api.openai.com/v1/realtime/calls";
 
