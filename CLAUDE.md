@@ -7,17 +7,24 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Live transcription works end-to-end: speak and words appear via a direct browser→OpenAI
 WebRTC connection (mic meter + in-app error surfacing in place). The transcript is now an
 editable type-and-talk `<textarea>` — finalized spoken segments append to the end via the
-unit-tested `appendSegment` helper (`src/app/transcript.ts`) without disturbing the user's
-caret; Enter inserts a newline instead of toggling recording. Verified by real speech.
-The recorder control is now the conventional voice-recorder pattern — one circular
-Record/Stop button (red dot → tap to record; red, pulsing, stop square → tap to stop) with
-a `● REC m:ss` timer and the live mic-level bar (replaced the earlier traffic-light idea).
-Persistence is still stubbed.
+unit-tested `appendSegment`/`planAppend` helpers (`src/lib/transcript.ts`) without
+disturbing the user's caret; Enter inserts a newline instead of toggling recording.
+Verified by real speech. The recorder control is now the conventional voice-recorder
+pattern — one circular Record/Stop button (red dot → tap to record; red, pulsing, stop
+square → tap to stop) with a `● REC m:ss` timer and the live mic-level bar (replaced the
+earlier traffic-light idea). Persistence is still stubbed.
 
-**Next (UI refinement):** turn Stop into a resume-able **Pause** — keep the OpenAI realtime
-session alive while suspending audio + the timer, then resume (design questions: mute track
-vs. close/reopen, idle-session timeout, timer + `gen` cancellation behavior; brainstorm
-before building). Then a **save & name** step (folds into Phase 2).
+Structure (post-refactor, 2026-06-12): pure node-tested logic lives in `src/lib/`
+(realtime connection orchestration, typed event parsing, the recorder state machine —
+with the `paused` state pre-built — cumulative timer math, caret planning); all
+imperative session state lives in the `useRecorder` hook; `RecorderClient` is a thin
+composition root over presentational `RecordButton`/`RecStatusLine`/`TranscriptEditor`/
+`EventLog` components. 53 vitest tests; new logic is written test-first.
+
+**Next (UI refinement):** build the resume-able **Pause** (design DECIDED 2026-06-12, see
+devlog): close-connection-on-pause / reconnect-on-resume (NOT keep-alive mute), a ~1.5s
+flush window on pause so the in-flight segment lands, Esc = pause, separate Done action
+that returns to idle keeping the text. Then a **save & name** step (folds into Phase 2).
 
 **Next (core):** Phase 2 (persistence — MediaRecorder → Vercel Blob → Neon entry,
 newest-first list).
