@@ -12,11 +12,11 @@
 // while spoken segments append to the end without disturbing the caret.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { appendSegment } from "@/lib/transcript";
 import { connectRealtimeSession } from "@/lib/realtime";
 import { formatElapsed, totalElapsedSec } from "@/lib/elapsed";
 import { parseRealtimeEvent, type RealtimeEvent } from "@/lib/realtime-events";
 import { transition, type RecorderStatus } from "@/lib/recorder-state";
+import TranscriptEditor, { type TranscriptEditorHandle } from "./TranscriptEditor";
 
 const OPENAI_CALLS_URL = "https://api.openai.com/v1/realtime/calls";
 
@@ -38,7 +38,7 @@ export default function RecorderClient() {
   const audioCtxRef = useRef<AudioContext | null>(null);
   const rafRef = useRef<number | null>(null);
   const meterRef = useRef<HTMLSpanElement | null>(null);
-  const textRef = useRef<HTMLTextAreaElement | null>(null);
+  const editorRef = useRef<TranscriptEditorHandle | null>(null);
   // Cancellation token for the async start() sequence. stop() bumps it; each
   // await in start() checks it and bails if a newer start/stop has superseded
   // this attempt — so an Esc mid-connect can't run code against a torn-down pc.
@@ -79,31 +79,11 @@ export default function RecorderClient() {
         pushLog(event.type, event.delta);
         setInterim((prev) => prev + event.delta);
         break;
-      case "conversation.item.input_audio_transcription.completed": {
+      case "conversation.item.input_audio_transcription.completed":
         pushLog(event.type, event.transcript);
-        // Append the finalized segment to the editable textarea WITHOUT
-        // disturbing the user's caret. We only ever append at the end, so an
-        // earlier selection stays valid and is restored verbatim. If the caret
-        // was already at the end (or the textarea is unfocused), follow along
-        // and scroll to the bottom.
-        const ta = textRef.current;
-        if (ta) {
-          const selStart = ta.selectionStart;
-          const selEnd = ta.selectionEnd;
-          const wasAtEnd =
-            selStart === ta.value.length && selEnd === ta.value.length;
-          ta.value = appendSegment(ta.value, event.transcript);
-          if (wasAtEnd) {
-            ta.selectionStart = ta.selectionEnd = ta.value.length;
-            ta.scrollTop = ta.scrollHeight;
-          } else {
-            ta.selectionStart = selStart;
-            ta.selectionEnd = selEnd;
-          }
-        }
+        editorRef.current?.append(event.transcript);
         setInterim("");
         break;
-      }
       // Surface the reason so a failed segment isn't a silent dead-end.
       case "conversation.item.input_audio_transcription.failed":
       case "error": {
@@ -303,17 +283,7 @@ export default function RecorderClient() {
         </p>
       )}
 
-      <div className="flex flex-1 flex-col gap-1">
-        <textarea
-          ref={textRef}
-          placeholder="Type or talk — your words appear here…"
-          aria-label="Transcript"
-          className="min-h-48 w-full flex-1 resize-none rounded-xl border border-foreground/10 bg-transparent p-4 text-lg leading-relaxed outline-none placeholder:text-foreground/30 focus:border-foreground/30"
-        />
-        {interim && (
-          <p className="px-4 text-lg leading-relaxed text-foreground/40">{interim}</p>
-        )}
-      </div>
+      <TranscriptEditor ref={editorRef} interim={interim} />
 
       <details className="text-xs text-foreground/50">
         <summary className="cursor-pointer select-none">raw event log (spike)</summary>
