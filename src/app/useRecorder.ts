@@ -58,6 +58,9 @@ export function useRecorder(opts: {
   const [elapsedSec, setElapsedSec] = useState(0);
 
   const pcRef = useRef<RTCPeerConnection | null>(null);
+  // The "oai-events" data channel — kept so pause/stop can send a manual
+  // input_audio_buffer.commit to force the tail segment to finalize.
+  const dcRef = useRef<RTCDataChannel | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const logIdRef = useRef(0);
   const audioCtxRef = useRef<AudioContext | null>(null);
@@ -107,8 +110,20 @@ export function useRecorder(opts: {
     pcRef.current?.getSenders().forEach((s) => s.track?.stop());
     pcRef.current?.close();
     pcRef.current = null;
+    dcRef.current = null; // closed implicitly with the pc above
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
+  }, []);
+
+  // Force the server to finalize whatever audio is still buffered (not yet
+  // VAD-committed) so its transcript lands before we tear the connection down.
+  // Safe to call when the buffer is empty — that returns a benign
+  // empty-buffer error which handleEvent suppresses.
+  const commitBuffer = useCallback(() => {
+    const dc = dcRef.current;
+    if (dc?.readyState === "open") {
+      dc.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
+    }
   }, []);
 
   const resetTimer = useCallback(() => {
@@ -138,7 +153,12 @@ export function useRecorder(opts: {
       case "error": {
         const errText = event.error?.message ?? event.error?.code;
         pushLog(event.type, errText);
-        if (errText) setErrorMsg(`transcription failed: ${errText}`);
+        // A manual commit with nothing newly buffered (e.g. Done/pause right
+        // after a VAD auto-commit) returns a benign empty-buffer error — log it
+        // but don't alarm the user with a failure banner.
+        const code = event.error?.code ?? "";
+        const benignEmptyCommit = code.includes("buffer") && code.includes("empty");
+        if (errText && !benignEmptyCommit) setErrorMsg(`transcription failed: ${errText}`);
         break;
       }
       case "unknown":
@@ -215,6 +235,7 @@ export function useRecorder(opts: {
             startMeter(stream);
           },
           onDataChannel: (dc) => {
+            dcRef.current = dc;
             dc.addEventListener("open", () => {
               if (genRef.current !== myGen) return; // cancelled before the channel opened
               setStatus((s) => transition(s, "CONNECTED")); // button goes red — on air
@@ -241,16 +262,21 @@ export function useRecorder(opts: {
   }, [cleanup, handleEvent, pushLog, startMeter]);
 
   const start = useCallback(() => {
+    // Close any connection still lingering inside a Done/pause flush window (and
+    // cancel its pending teardown timer) so we never start a fresh session on
+    // top of an old pc. Idempotent when nothing is open.
+    closeConnection();
     // Fresh recording: clear the event log and zero the timer. The transcript
     // editor is intentionally NOT cleared — the user may have pre-typed
     // hard-to-transcribe words, and may record multiple times into one entry.
     setLog([]);
     resetTimer();
     void connect("START");
-  }, [connect, resetTimer]);
+  }, [closeConnection, connect, resetTimer]);
 
   const pause = useCallback(() => {
     genRef.current += 1; // stop any in-flight connect from touching the pc
+    commitBuffer(); // finalize the in-flight segment before the flush-then-close
     // Bank the running segment so the frozen timer reads correctly and resume
     // continues from here.
     accumulatedMsRef.current = bankSegment(
@@ -274,7 +300,7 @@ export function useRecorder(opts: {
       flushTimerRef.current = null;
       closeConnection();
     }, FLUSH_MS);
-  }, [closeConnection]);
+  }, [closeConnection, commitBuffer]);
 
   const resume = useCallback(() => {
     // Tear down any lingering connection first: if resume fires DURING the flush
@@ -288,10 +314,27 @@ export function useRecorder(opts: {
 
   const stop = useCallback(() => {
     genRef.current += 1; // invalidate any in-flight connect so it stops touching the pc
+    // Force-finalize the buffered tail, then hold the connection open briefly so
+    // its completed transcript (and any segments still being transcribed) can
+    // land before teardown — the same flush rationale as pause. Closing
+    // immediately, as this used to, dropped everything said since the last VAD
+    // commit.
+    commitBuffer();
     setStatus((s) => transition(s, "DONE"));
-    cleanup();
     setInterim("");
-  }, [cleanup]);
+    // Freeze timer + meter and cut the mic now; defer the connection teardown.
+    if (timerRef.current != null) clearInterval(timerRef.current);
+    timerRef.current = null;
+    if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
+    rafRef.current = null;
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    resetTimer();
+    if (flushTimerRef.current != null) clearTimeout(flushTimerRef.current);
+    flushTimerRef.current = setTimeout(() => {
+      flushTimerRef.current = null;
+      closeConnection();
+    }, FLUSH_MS);
+  }, [commitBuffer, closeConnection, resetTimer]);
 
   return { status, elapsedSec, interim, errorMsg, log, start, pause, resume, stop, meterRef };
 }
