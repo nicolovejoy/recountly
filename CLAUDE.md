@@ -7,20 +7,37 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Live transcription works end-to-end: speak and words appear via a direct browser→OpenAI
 WebRTC connection (mic meter + in-app error surfacing in place). The transcript is now an
 editable type-and-talk `<textarea>` — finalized spoken segments append to the end via the
-unit-tested `appendSegment` helper (`src/app/transcript.ts`) without disturbing the user's
-caret; Enter inserts a newline instead of toggling recording. Verified by real speech.
-The recorder control is now the conventional voice-recorder pattern — one circular
-Record/Stop button (red dot → tap to record; red, pulsing, stop square → tap to stop) with
-a `● REC m:ss` timer and the live mic-level bar (replaced the earlier traffic-light idea).
-Persistence is still stubbed.
+unit-tested `appendSegment`/`planAppend` helpers (`src/lib/transcript.ts`) without
+disturbing the user's caret; Enter inserts a newline instead of toggling recording.
+Verified by real speech. The recorder control is one circular button whose action follows
+status via the tested `primaryAction` (record → pause → resume), with a `● REC m:ss` /
+`PAUSED` timer line and the live mic-level bar. Persistence is still stubbed.
 
-**Next (UI refinement):** turn Stop into a resume-able **Pause** — keep the OpenAI realtime
-session alive while suspending audio + the timer, then resume (design questions: mute track
-vs. close/reopen, idle-session timeout, timer + `gen` cancellation behavior; brainstorm
-before building). Then a **save & name** step (folds into Phase 2).
+Structure (post-refactor, 2026-06-12): pure node-tested logic lives in `src/lib/`
+(realtime connection orchestration, typed event parsing, the recorder state machine,
+cumulative timer math incl. `bankSegment`, caret planning, `primaryAction`); all
+imperative session state lives in the `useRecorder` hook; `RecorderClient` is a thin
+composition root over presentational `RecordButton`/`RecStatusLine`/`TranscriptEditor`/
+`EventLog` components. 91 vitest tests; new logic is written test-first.
 
-**Next (core):** Phase 2 (persistence — MediaRecorder → Vercel Blob → Neon entry,
-newest-first list).
+**Resume-able Pause is BUILT and real-speech verified (2026-06-13, on the mini).** Design:
+close-connection-on-pause / reconnect-on-resume (NOT keep-alive mute); pause cuts the mic
+immediately then holds the pc open `FLUSH_MS` (1.5s, left as-is) so the in-flight segment
+lands; `bankSegment` freezes/continues the timer; Esc = pause; separate Done (stop) returns
+to idle keeping the text. ⚠️ Gotcha fixed in verification: pause **and Done** must send a
+manual `input_audio_buffer.commit` over the data channel (kept in `dcRef`) to force the
+buffered tail to finalize — Done used to close immediately and dropped everything said since
+the last VAD commit. An empty-buffer error from a no-op commit is benign and suppressed.
+Affordance rule: **red == capturing only** (connecting = neutral spinner "don't speak yet";
+paused = blinking red).
+
+**Phase 2 foundation is BUILT and tested (DB-free core):** `src/lib/ulid.ts` (sortable IDs),
+`entry.ts` (EntryInput/EntryRecord + validate/build), `entry-sql.ts` (parameterized
+insert/list/get + rowToEntry), `audio.ts` (pickAudioMimeType), `db/schema.sql`. Two owner
+decisions gate the rest — see devlog: (1) DB driver + secrets (`DATABASE_URL`,
+`BLOB_READ_WRITE_TOKEN`), recommend `@neondatabase/serverless` + `@vercel/blob`; (2) how
+audio capture reconciles with the privacy-pause (pause cuts the mic, so one continuous
+file-per-entry needs a call). Then: data layer → blob upload → save/list routes → list UI.
 
 ⚠️ Gotcha learned the hard way: the OpenAI `client_secrets` mint endpoint does **not**
 validate the transcription model name. A bogus name (we had `gpt-realtime-whisper`) mints
@@ -47,8 +64,11 @@ this file is a distilled pointer to its decided constraints.
 - `pnpm build` — production build
 - `pnpm start` — serve the production build
 - `pnpm lint` — ESLint
+- `pnpm test` — Vitest (node env, pure-logic unit tests; 91 and counting)
 - `vercel` — deploy a preview; `vercel --prod` — deploy to production
-- No test runner is set up yet — add one when the first non-trivial logic lands.
+- Local secrets: `op inject -i .env.tpl -o .env.local` (1Password) mints the gitignored
+  `.env.local` holding `OPENAI_API_KEY`. `pnpm dev` auto-opens the browser; `pnpm dev:noopen`
+  doesn't.
 
 ## What recountly is
 

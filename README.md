@@ -1,36 +1,65 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# recountly
 
-## Getting Started
+A private, single-user spoken-word journal — speak, and watch the words appear live, then
+save the entry with audio + transcript. It replaces an old Bash CLI (sox + Whisper + dated
+markdown folders). Three core bets: **live transcription**, a **phone-usable UI**, and
+**clean queryable storage**.
 
-First, run the development server:
+> Authoritative spec: [`recountly-build-prompt.md`](./recountly-build-prompt.md).
+> Working context for contributors (human or AI): [`CLAUDE.md`](./CLAUDE.md).
+> Running log of decisions and changes: [`devlog.md`](./devlog.md).
+
+## Status
+
+- **Phase 1 (live transcription) — complete & verified.** Tap record, speak, see words
+  appear via a direct browser→OpenAI WebRTC connection. Editable type-and-talk transcript,
+  one circular record/pause/resume control, resume-able pause (close/reopen with a flush
+  window so the tail isn't dropped).
+- **Phase 2 (persistence) — in progress.** The pure, tested core is in place (`src/lib/`
+  entry model, sortable IDs, parameterized SQL, audio mime picker; `db/schema.sql`). The
+  data layer, blob upload, save/list routes, and entry-list UI are next.
+- Phases 3 (search) and 4 (LLM enrichment, imports, domain, auth) are roadmap.
+
+## Stack
+
+Next.js 16 (App Router, Turbopack) · React 19 · TypeScript · Tailwind CSS 4 · Vitest.
+Live transcription via the **OpenAI Realtime API with ephemeral tokens** — a route handler
+mints a short-lived token server-side; the browser streams mic audio directly to OpenAI, so
+the server is never in the audio path and `OPENAI_API_KEY` never reaches the client.
+Persistence (Phase 2): **Neon Postgres** + **Vercel Blob**, deployed on **Vercel**.
+
+## Develop
+
+Requires Node 20 + pnpm 9 (the lockfile is v9.0; pnpm 10+ needs Node 22.13+).
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+pnpm install
+op inject -i .env.tpl -o .env.local   # 1Password → gitignored .env.local (OPENAI_API_KEY)
+pnpm dev                               # http://localhost:8255  (opens automatically)
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+`pnpm dev:noopen` skips the auto-open. localhost is a secure origin, so the mic prompt works
+without https.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### Commands
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| | |
+|---|---|
+| `pnpm dev` | dev server (Turbopack) on :8255, auto-opens the browser |
+| `pnpm build` / `pnpm start` | production build / serve it |
+| `pnpm lint` | ESLint |
+| `pnpm test` | Vitest (node env, pure-logic unit tests) |
 
-## Learn More
+## Structure
 
-To learn more about Next.js, take a look at the following resources:
+- `src/lib/` — pure, node-tested logic (no React/DOM): realtime connection orchestration,
+  event parsing, the recorder state machine, timer math, transcript caret planning, and the
+  Phase 2 entry/SQL/audio/ulid helpers.
+- `src/app/` — routes, the `useRecorder` hook (all imperative session state), and the
+  presentational components `RecorderClient` composes (`RecordButton`, `RecStatusLine`,
+  `TranscriptEditor`, `EventLog`).
+- `src/app/api/realtime-token/route.ts` — the only place `OPENAI_API_KEY` lives.
+- `db/schema.sql` — the `entries` table.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+New non-trivial logic is written test-first. CI (`.github/workflows/ci.yml`) runs lint +
+test + build on every push and PR.
