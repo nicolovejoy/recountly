@@ -82,6 +82,9 @@ export default function RecorderClient() {
             press <kbd className="font-mono">Esc</kbd> to pause
           </p>
         )}
+        {status === "paused" && (
+          <p className="text-xs text-foreground/40">tap the red button to resume</p>
+        )}
       </div>
 
       {errorMsg && (
