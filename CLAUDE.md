@@ -18,22 +18,26 @@ Structure (post-refactor, 2026-06-12): pure node-tested logic lives in `src/lib/
 cumulative timer math incl. `bankSegment`, caret planning, `primaryAction`); all
 imperative session state lives in the `useRecorder` hook; `RecorderClient` is a thin
 composition root over presentational `RecordButton`/`RecStatusLine`/`TranscriptEditor`/
-`EventLog` components. 62 vitest tests; new logic is written test-first.
+`EventLog` components. 91 vitest tests; new logic is written test-first.
 
-**Resume-able Pause is BUILT (2026-06-12) but NOT yet real-speech verified** (no mic in
-the build container). Design as shipped: close-connection-on-pause / reconnect-on-resume
-(NOT keep-alive mute); pause cuts the mic immediately then holds the pc open `FLUSH_MS`
-(1.5s) so the in-flight segment lands; `bankSegment` freezes/continues the timer; Esc =
-pause; separate Done (stop) returns to idle keeping the text. Owner must smoke-test the
-flush/reconnect timing (does a fresh-token reconnect re-enter a live session; does the
-window catch the tail) and tune `FLUSH_MS` if needed.
+**Resume-able Pause is BUILT and real-speech verified (2026-06-13, on the mini).** Design:
+close-connection-on-pause / reconnect-on-resume (NOT keep-alive mute); pause cuts the mic
+immediately then holds the pc open `FLUSH_MS` (1.5s, left as-is) so the in-flight segment
+lands; `bankSegment` freezes/continues the timer; Esc = pause; separate Done (stop) returns
+to idle keeping the text. ⚠️ Gotcha fixed in verification: pause **and Done** must send a
+manual `input_audio_buffer.commit` over the data channel (kept in `dcRef`) to force the
+buffered tail to finalize — Done used to close immediately and dropped everything said since
+the last VAD commit. An empty-buffer error from a no-op commit is benign and suppressed.
+Affordance rule: **red == capturing only** (connecting = neutral spinner "don't speak yet";
+paused = blinking red).
 
-**Next:** owner verification of pause/resume, then a **save & name** step folding into
-Phase 2. `TranscriptEditor.getValue()` is the read side already in place; Done is the
-natural save trigger.
-
-**Next (core):** Phase 2 (persistence — MediaRecorder → Vercel Blob → Neon entry,
-newest-first list).
+**Phase 2 foundation is BUILT and tested (DB-free core):** `src/lib/ulid.ts` (sortable IDs),
+`entry.ts` (EntryInput/EntryRecord + validate/build), `entry-sql.ts` (parameterized
+insert/list/get + rowToEntry), `audio.ts` (pickAudioMimeType), `db/schema.sql`. Two owner
+decisions gate the rest — see devlog: (1) DB driver + secrets (`DATABASE_URL`,
+`BLOB_READ_WRITE_TOKEN`), recommend `@neondatabase/serverless` + `@vercel/blob`; (2) how
+audio capture reconciles with the privacy-pause (pause cuts the mic, so one continuous
+file-per-entry needs a call). Then: data layer → blob upload → save/list routes → list UI.
 
 ⚠️ Gotcha learned the hard way: the OpenAI `client_secrets` mint endpoint does **not**
 validate the transcription model name. A bogus name (we had `gpt-realtime-whisper`) mints
@@ -60,8 +64,11 @@ this file is a distilled pointer to its decided constraints.
 - `pnpm build` — production build
 - `pnpm start` — serve the production build
 - `pnpm lint` — ESLint
+- `pnpm test` — Vitest (node env, pure-logic unit tests; 91 and counting)
 - `vercel` — deploy a preview; `vercel --prod` — deploy to production
-- No test runner is set up yet — add one when the first non-trivial logic lands.
+- Local secrets: `op inject -i .env.tpl -o .env.local` (1Password) mints the gitignored
+  `.env.local` holding `OPENAI_API_KEY`. `pnpm dev` auto-opens the browser; `pnpm dev:noopen`
+  doesn't.
 
 ## What recountly is
 

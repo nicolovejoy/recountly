@@ -1,5 +1,27 @@
 # recountly devlog
 
+## 2026-06-13 — Pause/resume verified on the mini; tail-drop bug fixed; affordances retuned
+
+Owner ran the branch locally (`op inject` → `.env.local`, `pnpm dev`) and verified the full
+pause/resume flow works well — record → pause → resume → Done, incl. resume-mid-flush and
+Esc-mid-connect. Two fixes/changes made during that session (commits `d561f7e`, `27e4c00`):
+
+- **Bug fixed — Done was dropping the tail.** Done closed the connection immediately, so
+  everything spoken since the last VAD auto-commit was lost. Fix: keep the data channel in
+  `dcRef` and, on both pause and Done, send a manual `input_audio_buffer.commit` to force
+  the buffered tail to finalize, then hold the pc open `FLUSH_MS` (Done now flushes like
+  pause instead of tearing down at once). A no-op commit returns a benign empty-buffer
+  error, now suppressed in `handleEvent` rather than shown as a failure banner. `start()`
+  also now `closeConnection()`s first so a fresh record can't stack on a lingering pc.
+- **Affordances retuned — red == capturing, exclusively.** connecting = neutral spinner
+  ("Connecting… don't speak yet"), paused = blinking red ring + red play triangle (was
+  amber), "tap the red button to resume" hint. So red is the only "go" signal.
+- **Dev tooling:** `.env.tpl` (1Password `op://` ref, committed; `!.env.tpl` un-ignored),
+  `pnpm dev` auto-opens the browser, `pnpm dev:noopen` for the quiet variant.
+
+Pause/resume is now DONE. FLUSH_MS stays 1.5s. Suite 91 green on this state. Next is the
+two Phase 2 decisions below.
+
 ## 2026-06-13 — CI, web session-start hook, Phase 2 testable foundation (remote)
 
 Continuation of the same remote session (still no mic/keys). PR #1 opened off
