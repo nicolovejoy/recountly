@@ -1,5 +1,45 @@
 # recountly devlog
 
+## 2026-06-13 — CI, web session-start hook, Phase 2 testable foundation (remote)
+
+Continuation of the same remote session (still no mic/keys). PR #1 opened off
+`claude/repo-remote-work-assessment-y0m14t`.
+
+**Infra (verifiable here, takes effect once merged to default branch):**
+- **GitHub Actions CI** (`.github/workflows/ci.yml`) — lint + test + build on push/PR,
+  Node 20 + pnpm 9, concurrency-cancel. Validated by running the exact sequence locally.
+- **SessionStart hook** (`.claude/hooks/session-start.sh` + `.claude/settings.json`) —
+  `pnpm install` on web session start so deps are ready (this branch's first session
+  started with no node_modules). Remote-only, ambient pnpm (NOT the v9 pin — that's for
+  the owner's local Node 20; the container is Node 22 and forcing a downgrade triggers an
+  interactive purge prompt), non-interactive via CI=1, synchronous. Validated.
+
+**Phase 2 foundation (pure, test-first, 80→91 tests — the DB-free, decision-free core):**
+- `src/lib/ulid.ts` — dependency-free ULID-style sortable IDs (26-char Crockford base32,
+  time-sortable by string compare), injected clock/rng.
+- `src/lib/entry.ts` — EntryInput/EntryRecord, validateEntryInput (collects all errors),
+  buildEntryRecord (assembles row: id, blob url, timestamps; trims transcript).
+- `src/lib/entry-sql.ts` — parameterized insert/list/get `{ text, values }` (any pg-style
+  client runs them) + rowToEntry (snake_case Date|string rows → EntryRecord). Injection-safe.
+- `src/lib/audio.ts` — pickAudioMimeType (Opus/WebM → mp4 → ogg), injected isTypeSupported.
+- `db/schema.sql` — entries table mirroring EntryRecord + recorded_at DESC index.
+
+**STOPPED here deliberately — two owner decisions block the rest (neither guessable):**
+1. **DB driver + secrets.** Stack already decided Neon Postgres + Vercel Blob; the client
+   lib wasn't pinned. Recommend `@neondatabase/serverless` (+ `@vercel/blob`). The data-
+   access layer, blob upload, save/list API routes (Next 16 — consult
+   `node_modules/next/dist/docs` per AGENTS.md), and the newest-first list UI are all
+   ready to build on the tested SQL/domain core, but need `DATABASE_URL` +
+   `BLOB_READ_WRITE_TOKEN` in the env to verify at runtime. Building them blind = handing
+   the owner unverifiable code, against the project's verify-each-phase rule.
+2. **Audio capture vs the privacy-pause.** Pause stops the mic stream and resume gets a
+   NEW one, so a paused-then-resumed entry yields fragmented, non-concatenable WebM. "One
+   continuous audio file per entry" conflicts with "cut the mic on pause for privacy."
+   Options: (a) keep one continuous mic stream, pause only suspends MediaRecorder +
+   transcription (weakens the privacy cut); (b) per-segment blobs stitched server-side
+   (complex); (c) v1 saves transcript always, audio best-effort / only for un-paused
+   entries. Needs an owner call before wiring MediaRecorder into useRecorder.
+
 ## 2026-06-12 — Pause/resume brainstorm decided + pre-pause refactor (TDD), remote session
 
 Remote Claude Code session (cloud container, no mic/keys — pure-logic work only).
