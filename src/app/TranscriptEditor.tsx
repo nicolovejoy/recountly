@@ -16,6 +16,8 @@ export interface TranscriptEditorHandle {
   append(segment: string): void;
   /** Current transcript text (typed + spoken). */
   getValue(): string;
+  /** Empty the editor (after a save, so the next entry starts fresh). */
+  clear(): void;
 }
 
 export default function TranscriptEditor({
@@ -39,6 +41,9 @@ export default function TranscriptEditor({
     },
     getValue() {
       return textRef.current?.value ?? "";
+    },
+    clear() {
+      if (textRef.current) textRef.current.value = "";
     },
   }), []);
 

@@ -17,6 +17,7 @@ import { connectRealtimeSession } from "@/lib/realtime";
 import { totalElapsedSec, bankSegment } from "@/lib/elapsed";
 import { parseRealtimeEvent, type RealtimeEvent } from "@/lib/realtime-events";
 import { transition, type RecorderStatus, type RecorderEvent } from "@/lib/recorder-state";
+import { pickAudioMimeType } from "@/lib/audio";
 
 const OPENAI_CALLS_URL = "https://api.openai.com/v1/realtime/calls";
 
@@ -26,6 +27,15 @@ const OPENAI_CALLS_URL = "https://api.openai.com/v1/realtime/calls";
 const FLUSH_MS = 1500;
 
 export type LogLine = { id: number; type: string; text?: string };
+
+// Handed to onStop when a recording finishes (Done). Audio is best-effort — a
+// single continuous segment (the last one if the entry was paused/resumed), or
+// null if the browser couldn't record / nothing was captured.
+export interface RecordingResult {
+  durationSeconds: number;
+  audioBlob: Blob | null;
+  audioMime: string | null;
+}
 
 export interface Recorder {
   status: RecorderStatus;
@@ -50,6 +60,8 @@ export interface Recorder {
 export function useRecorder(opts: {
   /** Called with each finalized spoken segment (caller appends it to the editor). */
   onSegment: (segment: string) => void;
+  /** Called once on Done with the duration + best-effort audio (caller saves). */
+  onStop?: (result: RecordingResult) => void;
 }): Recorder {
   const [status, setStatus] = useState<RecorderStatus>("idle");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -62,6 +74,13 @@ export function useRecorder(opts: {
   // input_audio_buffer.commit to force the tail segment to finalize.
   const dcRef = useRef<RTCDataChannel | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  // Best-effort audio capture. A fresh MediaRecorder is started on every mic
+  // stream (start AND resume), resetting the chunk buffer — so a paused-then-
+  // resumed entry keeps only the last continuous segment (the agreed v1 rule:
+  // transcript always complete, audio best-effort). null when unsupported.
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const audioMimeRef = useRef<string>("");
   const logIdRef = useRef(0);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const rafRef = useRef<number | null>(null);
@@ -85,8 +104,10 @@ export function useRecorder(opts: {
   // effect (not during render) per the react-hooks/refs rule; the listener
   // only fires from events, so effect timing is sufficient.
   const onSegmentRef = useRef(opts.onSegment);
+  const onStopRef = useRef(opts.onStop);
   useEffect(() => {
     onSegmentRef.current = opts.onSegment;
+    onStopRef.current = opts.onStop;
   });
 
   const pushLog = useCallback((type: string, text?: string) => {
@@ -113,6 +134,16 @@ export function useRecorder(opts: {
     dcRef.current = null; // closed implicitly with the pc above
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
+    // Free any lingering recorder. The Done path finalizes it first (state
+    // already inactive here); start() uses this to discard a prior one.
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      try {
+        mediaRecorderRef.current.stop();
+      } catch {
+        /* already stopping/inactive */
+      }
+    }
+    mediaRecorderRef.current = null;
   }, []);
 
   // Force the server to finalize whatever audio is still buffered (not yet
@@ -191,6 +222,51 @@ export function useRecorder(opts: {
     tick();
   }, []);
 
+  // Start a fresh MediaRecorder on a mic stream (called per connect, so resume
+  // discards the prior segment — best-effort "last continuous segment" audio).
+  // Timeslice keeps chunks flowing so a pause that ends the track still leaves
+  // most of the segment buffered without an explicit stop. No-op (audio stays
+  // null) when the platform lacks MediaRecorder or a supported container.
+  const startRecorder = useCallback((stream: MediaStream) => {
+    if (typeof MediaRecorder === "undefined") {
+      mediaRecorderRef.current = null;
+      return;
+    }
+    const mime = pickAudioMimeType((t) => MediaRecorder.isTypeSupported(t));
+    audioChunksRef.current = [];
+    audioMimeRef.current = mime;
+    try {
+      const rec = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+      rec.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunksRef.current.push(e.data);
+      };
+      rec.start(1000);
+      mediaRecorderRef.current = rec;
+    } catch (err) {
+      pushLog("recorder:error", err instanceof Error ? err.message : String(err));
+      mediaRecorderRef.current = null;
+    }
+  }, [pushLog]);
+
+  // Flush and assemble the captured audio into one Blob. Resolves null when no
+  // audio was recorded. Stopping the recorder (if still active) forces the tail
+  // chunk out before we read the buffer.
+  const finalizeRecording = useCallback((): Promise<{ blob: Blob; mime: string } | null> => {
+    const rec = mediaRecorderRef.current;
+    const mime = audioMimeRef.current || "audio/webm";
+    const assemble = (): { blob: Blob; mime: string } | null => {
+      const chunks = audioChunksRef.current;
+      if (chunks.length === 0) return null;
+      const blob = new Blob(chunks, { type: mime });
+      return blob.size > 0 ? { blob, mime } : null;
+    };
+    if (!rec || rec.state === "inactive") return Promise.resolve(assemble());
+    return new Promise((resolve) => {
+      rec.addEventListener("stop", () => resolve(assemble()), { once: true });
+      rec.stop();
+    });
+  }, []);
+
   // The shared connection sequence, used by both start (trigger START) and
   // resume (trigger RESUME). It does NOT reset the timer or log — start/resume
   // each decide what to preserve before calling in. On a successful connect the
@@ -233,6 +309,7 @@ export function useRecorder(opts: {
           onStream: (stream) => {
             streamRef.current = stream;
             startMeter(stream);
+            startRecorder(stream);
           },
           onDataChannel: (dc) => {
             dcRef.current = dc;
@@ -259,7 +336,7 @@ export function useRecorder(opts: {
       setStatus((s) => transition(s, "FAIL"));
       cleanup();
     }
-  }, [cleanup, handleEvent, pushLog, startMeter]);
+  }, [cleanup, handleEvent, pushLog, startMeter, startRecorder]);
 
   const start = useCallback(() => {
     // Close any connection still lingering inside a Done/pause flush window (and
@@ -322,6 +399,18 @@ export function useRecorder(opts: {
     commitBuffer();
     setStatus((s) => transition(s, "DONE"));
     setInterim("");
+    // Snapshot the final duration before resetTimer zeroes it.
+    const durationSeconds = totalElapsedSec(
+      accumulatedMsRef.current,
+      segmentStartRef.current,
+      Date.now(),
+    );
+    // Kick off audio finalization now — finalizeRecording calls recorder.stop()
+    // synchronously here, before the mic tracks are cut below, so the tail chunk
+    // flushes cleanly. We deliberately do NOT save yet: the last spoken segment's
+    // transcript only lands during the FLUSH_MS window, and the caller's onStop
+    // reads the editor — so the save must wait until that window closes (below).
+    const audioPromise = finalizeRecording();
     // Freeze timer + meter and cut the mic now; defer the connection teardown.
     if (timerRef.current != null) clearInterval(timerRef.current);
     timerRef.current = null;
@@ -333,8 +422,16 @@ export function useRecorder(opts: {
     flushTimerRef.current = setTimeout(() => {
       flushTimerRef.current = null;
       closeConnection();
+      // The transcript tail has landed by now — hand the complete result over.
+      void audioPromise.then((audio) => {
+        onStopRef.current?.({
+          durationSeconds,
+          audioBlob: audio?.blob ?? null,
+          audioMime: audio?.mime ?? null,
+        });
+      });
     }, FLUSH_MS);
-  }, [commitBuffer, closeConnection, resetTimer]);
+  }, [commitBuffer, closeConnection, resetTimer, finalizeRecording]);
 
   return { status, elapsedSec, interim, errorMsg, log, start, pause, resume, stop, meterRef };
 }
