@@ -114,4 +114,23 @@ describe("rowToEntry", () => {
     expect(entry.title).toBe("A title");
     expect(entry.tags).toEqual([]);
   });
+
+  it("maps null audio columns to nulls (best-effort audio not saved)", () => {
+    const entry = rowToEntry({
+      id: "01HX",
+      recorded_at: "2026-06-13T01:00:00.000Z",
+      created_at: "2026-06-13T01:00:05.000Z",
+      updated_at: "2026-06-13T01:00:05.000Z",
+      duration_seconds: 10,
+      transcript: "hello",
+      title: null,
+      tags: [],
+      audio_url: null,
+      audio_mime: null,
+      audio_bytes: null,
+    });
+    expect(entry.audioUrl).toBeNull();
+    expect(entry.audioMime).toBeNull();
+    expect(entry.audioBytes).toBeNull();
+  });
 });

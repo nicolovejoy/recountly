@@ -40,6 +40,12 @@ describe("validateEntryInput", () => {
     );
   });
 
+  it("accepts an audio-less input (best-effort audio)", () => {
+    expect(
+      validateEntryInput({ transcript: "spoke, no audio saved", durationSeconds: 10 }),
+    ).toEqual([]);
+  });
+
   it("collects multiple problems at once", () => {
     const errors = validateEntryInput({
       transcript: "",
@@ -90,5 +96,15 @@ describe("buildEntryRecord", () => {
       { id, audioUrl, now },
     );
     expect(rec.transcript).toBe("hello");
+  });
+
+  it("stores nulls for an audio-less entry", () => {
+    const rec = buildEntryRecord(
+      { transcript: "no audio", durationSeconds: 10 },
+      { id, audioUrl: null, now },
+    );
+    expect(rec.audioUrl).toBeNull();
+    expect(rec.audioMime).toBeNull();
+    expect(rec.audioBytes).toBeNull();
   });
 });
