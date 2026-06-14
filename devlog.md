@@ -30,8 +30,19 @@ test-first on the existing DB-free core. Branch `phase-2-persistence`.
 - `TranscriptEditor.clear()`, `RecorderClient` Done→save + save-status line, `EntryList`
   (newest-first, audio player per entry).
 
-**⚠️ Runtime NOT yet verified — blocked on owner-side provisioning.** The pure logic is
-tested; the live save/list path needs a real Neon DB + Blob store + browser. Steps below.
+**Provisioned + persistence verified (2026-06-13, on the mini).** Neon (`neon-gray-coin`)
++ Vercel Blob (`recountly-audio`) connected to the project. Secrets: Vercel integration
+vars are write-only (`vercel env pull` returns them blank), so local uses **op** items
+(`recountly-neon` field `credential`, `recountly-blob` field `BLOB_READ_WRITE_TOKEN`) via
+`op inject`; Vercel env stays the prod source. Schema applied with `pnpm db:migrate`.
+`POST`+`GET /api/entries` round-trips a real entry — Neon insert + live Vercel Blob upload
+(got a public blob URL) — and it renders in the `EntryList` UI with 0 console errors
+(Playwright). Test entry + blob cleaned up after.
+
+**Still unverified — the live-speech leg only.** API + DB + Blob + list UI are proven, but
+the record→speak→Done→save flow (MediaRecorder capture + onStop firing after FLUSH_MS)
+needs a real mic. Next session: speak an entry, hit Done, confirm it appears with playable
+audio. Also deferred: the "audio not fully captured this entry" cue after a pause.
 
 ## 2026-06-13 — Pause/resume verified on the mini; tail-drop bug fixed; affordances retuned
 
