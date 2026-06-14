@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Project status: Phase 1 complete (live transcription + editable transcript)
+## Project status: Phase 2 complete (live transcription + editable transcript + persistence)
 
 Live transcription works end-to-end: speak and words appear via a direct browser→OpenAI
 WebRTC connection (mic meter + in-app error surfacing in place). The transcript is now an
@@ -11,14 +11,14 @@ unit-tested `appendSegment`/`planAppend` helpers (`src/lib/transcript.ts`) witho
 disturbing the user's caret; Enter inserts a newline instead of toggling recording.
 Verified by real speech. The recorder control is one circular button whose action follows
 status via the tested `primaryAction` (record → pause → resume), with a `● REC m:ss` /
-`PAUSED` timer line and the live mic-level bar. Persistence is still stubbed.
+`PAUSED` timer line and the live mic-level bar. (Persistence landed in Phase 2 — below.)
 
 Structure (post-refactor, 2026-06-12): pure node-tested logic lives in `src/lib/`
 (realtime connection orchestration, typed event parsing, the recorder state machine,
 cumulative timer math incl. `bankSegment`, caret planning, `primaryAction`); all
 imperative session state lives in the `useRecorder` hook; `RecorderClient` is a thin
 composition root over presentational `RecordButton`/`RecStatusLine`/`TranscriptEditor`/
-`EventLog` components. 91 vitest tests; new logic is written test-first.
+`EventLog` components. 111 vitest tests; new logic is written test-first.
 
 **Resume-able Pause is BUILT and real-speech verified (2026-06-13, on the mini).** Design:
 close-connection-on-pause / reconnect-on-resume (NOT keep-alive mute); pause cuts the mic
@@ -31,13 +31,30 @@ the last VAD commit. An empty-buffer error from a no-op commit is benign and sup
 Affordance rule: **red == capturing only** (connecting = neutral spinner "don't speak yet";
 paused = blinking red).
 
-**Phase 2 foundation is BUILT and tested (DB-free core):** `src/lib/ulid.ts` (sortable IDs),
-`entry.ts` (EntryInput/EntryRecord + validate/build), `entry-sql.ts` (parameterized
-insert/list/get + rowToEntry), `audio.ts` (pickAudioMimeType), `db/schema.sql`. Two owner
-decisions gate the rest — see devlog: (1) DB driver + secrets (`DATABASE_URL`,
-`BLOB_READ_WRITE_TOKEN`), recommend `@neondatabase/serverless` + `@vercel/blob`; (2) how
-audio capture reconciles with the privacy-pause (pause cuts the mic, so one continuous
-file-per-entry needs a call). Then: data layer → blob upload → save/list routes → list UI.
+**Phase 2 (persistence) is BUILT and real-speech verified (2026-06-13, on the mini).**
+On Done, the client POSTs the transcript + best-effort audio to `POST /api/entries`
+(multipart); the route validates, mints a ULID, uploads audio to Vercel Blob, and inserts
+into Neon; `GET /api/entries` lists newest-first; `EntryList` renders cards with an audio
+player. Decisions made: **`@neondatabase/serverless` + `@vercel/blob`**; **audio is
+best-effort single-segment** (transcript always saved; a paused-then-resumed entry keeps
+only the last continuous segment) — audio columns nullable. Layers: pure tested core in
+`src/lib/` (`db.ts` data-access over the SQL builders w/ injectable runner + lazy neon init;
+`blob.ts` upload; `entry-form.ts` the client↔route FormData contract) → `src/app/api/entries/route.ts`
+→ MediaRecorder wired into `useRecorder` (fresh recorder per stream; Done finalizes audio
+**after** the FLUSH_MS window so the transcript tail is included). 111 vitest tests.
+
+⚠️ **MediaRecorder WebM has no duration header** — Chrome then can't seek and mis-plays
+(shows ~8s of a 22s clip, tail only; the audio data is all there). Fixed by patching the
+real duration into the blob client-side before upload via `fix-webm-duration`
+(`finalizeRecording` in `useRecorder`, WebM only). Verified: playback now spans the full clip.
+
+**Secrets/provisioning (mini):** Neon (`neon-gray-coin`) + Vercel Blob (`recountly-audio`)
+connected to the Vercel project. Vercel marks integration secrets write-only, so
+`vercel env pull` returns `DATABASE_URL`/`BLOB_READ_WRITE_TOKEN` **blank** — local uses
+**op** instead (`op inject`): items `recountly-neon` (field `credential`) + `recountly-blob`
+(field `BLOB_READ_WRITE_TOKEN`); prod stays on Vercel env. Apply schema with `pnpm db:migrate`.
+⚠️ The OpenAI key must belong to an **active** project — an archived-project key mints a
+401 "project archived" (cost a chunk of a session to diagnose).
 
 ⚠️ Gotcha learned the hard way: the OpenAI `client_secrets` mint endpoint does **not**
 validate the transcription model name. A bogus name (we had `gpt-realtime-whisper`) mints

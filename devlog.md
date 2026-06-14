@@ -39,10 +39,26 @@ vars are write-only (`vercel env pull` returns them blank), so local uses **op**
 (got a public blob URL) — and it renders in the `EntryList` UI with 0 console errors
 (Playwright). Test entry + blob cleaned up after.
 
-**Still unverified — the live-speech leg only.** API + DB + Blob + list UI are proven, but
-the record→speak→Done→save flow (MediaRecorder capture + onStop firing after FLUSH_MS)
-needs a real mic. Next session: speak an entry, hit Done, confirm it appears with playable
-audio. Also deferred: the "audio not fully captured this entry" cue after a pause.
+**Live-speech leg verified (2026-06-13, on the mini) — Phase 2 acceptance met.** Recorded
+real speech → words live → Done → entry saved + listed + audio plays back full-length.
+
+⚠️ **Bug found + fixed in that verification — MediaRecorder WebM has no duration header.**
+First playback only played the tail (~8s of a 22s clip) and showed a wrong duration.
+ffprobe confirmed `duration=N/A` with the full ~137KB of Opus present — data intact, just
+no container duration, so Chrome can't seek and mis-plays. Fix: patch the real duration into
+the blob before upload with `fix-webm-duration` (added dep) in `finalizeRecording`
+(`recorderStartRef` stamps the recorder start; WebM only — mp4 already carries it). Re-verified:
+full-length playback.
+
+**Provisioning gotchas worth remembering:** (1) Vercel integration secrets are write-only —
+`vercel env pull` returns `DATABASE_URL`/`BLOB_READ_WRITE_TOKEN` blank; grab the real values
+from the provider consoles (Neon connection string; Blob store token) and keep them in op.
+(2) Blob connect dialog: must tick **"Add a read-write token env var"** or you get no
+`BLOB_READ_WRITE_TOKEN`. (3) OpenAI key must be in an **active** project — an archived-project
+key mints a 401 "project archived" (looks like a key problem, isn't).
+
+**Still deferred:** the "audio not fully captured this entry" cue after a pause (best-effort
+audio means a paused entry keeps only the last segment — UI should hint that).
 
 ## 2026-06-13 — Pause/resume verified on the mini; tail-drop bug fixed; affordances retuned
 
