@@ -18,6 +18,7 @@ import { totalElapsedSec, bankSegment } from "@/lib/elapsed";
 import { parseRealtimeEvent, type RealtimeEvent } from "@/lib/realtime-events";
 import { transition, type RecorderStatus, type RecorderEvent } from "@/lib/recorder-state";
 import { pickAudioMimeType } from "@/lib/audio";
+import fixWebmDuration from "fix-webm-duration";
 
 const OPENAI_CALLS_URL = "https://api.openai.com/v1/realtime/calls";
 
@@ -81,6 +82,9 @@ export function useRecorder(opts: {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const audioMimeRef = useRef<string>("");
+  // When the current recorder started — used to write the real duration into the
+  // WebM (MediaRecorder omits it, which breaks Chrome's seek/playback).
+  const recorderStartRef = useRef<number | null>(null);
   const logIdRef = useRef(0);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const rafRef = useRef<number | null>(null);
@@ -235,6 +239,7 @@ export function useRecorder(opts: {
     const mime = pickAudioMimeType((t) => MediaRecorder.isTypeSupported(t));
     audioChunksRef.current = [];
     audioMimeRef.current = mime;
+    recorderStartRef.current = null;
     try {
       const rec = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
       rec.ondataavailable = (e) => {
@@ -242,6 +247,7 @@ export function useRecorder(opts: {
       };
       rec.start(1000);
       mediaRecorderRef.current = rec;
+      recorderStartRef.current = Date.now();
     } catch (err) {
       pushLog("recorder:error", err instanceof Error ? err.message : String(err));
       mediaRecorderRef.current = null;
@@ -254,13 +260,26 @@ export function useRecorder(opts: {
   const finalizeRecording = useCallback((): Promise<{ blob: Blob; mime: string } | null> => {
     const rec = mediaRecorderRef.current;
     const mime = audioMimeRef.current || "audio/webm";
-    const assemble = (): { blob: Blob; mime: string } | null => {
+    const startedAt = recorderStartRef.current;
+    const assemble = async (): Promise<{ blob: Blob; mime: string } | null> => {
       const chunks = audioChunksRef.current;
       if (chunks.length === 0) return null;
-      const blob = new Blob(chunks, { type: mime });
-      return blob.size > 0 ? { blob, mime } : null;
+      let blob = new Blob(chunks, { type: mime });
+      if (blob.size === 0) return null;
+      // MediaRecorder writes no duration into the WebM header, so Chrome can't
+      // seek and mis-plays. Write the real recorded length in before upload
+      // (WebM only; mp4/Safari already carries duration). Keep the raw blob if
+      // the patch fails — the audio data is intact regardless.
+      if (startedAt != null && mime.includes("webm")) {
+        try {
+          blob = await fixWebmDuration(blob, Date.now() - startedAt);
+        } catch {
+          /* keep the unpatched blob */
+        }
+      }
+      return { blob, mime };
     };
-    if (!rec || rec.state === "inactive") return Promise.resolve(assemble());
+    if (!rec || rec.state === "inactive") return assemble();
     return new Promise((resolve) => {
       rec.addEventListener("stop", () => resolve(assemble()), { once: true });
       rec.stop();
