@@ -56,6 +56,11 @@ connected to the Vercel project. Vercel marks integration secrets write-only, so
 ⚠️ The OpenAI key must belong to an **active** project — an archived-project key mints a
 401 "project archived" (cost a chunk of a session to diagnose).
 
+**Next:** open the PR for `phase-2-persistence` → deploy a preview + verify save/list on
+prod (set `DATABASE_URL`/`BLOB_READ_WRITE_TOKEN`/`OPENAI_API_KEY` are live in Vercel env) →
+Phase 3 (Postgres full-text search over transcripts + date filter). Deferred polish: the
+"audio not fully captured this entry" cue after a pause.
+
 ⚠️ Gotcha learned the hard way: the OpenAI `client_secrets` mint endpoint does **not**
 validate the transcription model name. A bogus name (we had `gpt-realtime-whisper`) mints
 a token fine, then `/v1/realtime/calls` hangs ~15s → Cloudflare 504 with no CORS headers →
