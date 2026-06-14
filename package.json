@@ -8,6 +8,7 @@
     "build": "next build",
     "start": "next start -p 8255",
     "lint": "eslint",
+    "db:migrate": "node --env-file=.env.local scripts/migrate.mjs",
     "test": "vitest run",
     "test:watch": "vitest"
   },
