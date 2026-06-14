@@ -1,5 +1,38 @@
 # recountly devlog
 
+## 2026-06-13 — Phase 2 persistence built end-to-end (code-complete; runtime verify pending)
+
+Both gating decisions settled with the owner, then the whole save/list path built
+test-first on the existing DB-free core. Branch `phase-2-persistence`.
+
+**Decisions:**
+1. **DB driver:** `@neondatabase/serverless` + `@vercel/blob` (confirmed). neon's
+   `sql.query(text, values)` runs the existing `entry-sql.ts` builders verbatim.
+2. **Audio vs privacy-pause:** best-effort **single continuous segment**. Transcript is
+   ALWAYS saved; audio is whatever the last continuous capture produced (a paused-then-
+   resumed entry keeps only the post-resume segment — owner pauses rarely). Audio columns
+   made nullable. ⚠️ **Deferred TODO:** a visual "not capturing full audio this entry" cue
+   when a pause splits a recording — agreed but not built ("yet").
+
+**Built (each a green checkpoint — 91→111 tests, lint, build):**
+- `entry.ts`/`entry-sql.ts`/`schema.sql`: audio fields nullable; `validateEntryInput`
+  validates audio only when present.
+- `db.ts`: insert/list/get over the SQL builders; injectable `QueryRunner` (tested with a
+  fake); **lazy neon init** so an unset `DATABASE_URL` can't crash `next build`.
+- `blob.ts`: `audioExtension`/`audioBlobPath` (pure) + `uploadAudio` over `put()`, public v1.
+- `POST/GET /api/entries` (Next 16 Web Request/Response): POST takes multipart
+  (transcript + durationSeconds + optional audio File), validates, mints a ULID, uploads
+  audio best-effort (a failed upload still saves the transcript), inserts, returns 201.
+- `entry-form.ts`: `buildEntryFormData` — the client↔route field contract, tested.
+- `useRecorder`: a fresh `MediaRecorder` per mic stream (resume discards prior chunks);
+  Done finalizes audio then fires `onStop` **after the FLUSH_MS window** so the final
+  transcript tail is in the editor before the save reads it (the subtle ordering bug here).
+- `TranscriptEditor.clear()`, `RecorderClient` Done→save + save-status line, `EntryList`
+  (newest-first, audio player per entry).
+
+**⚠️ Runtime NOT yet verified — blocked on owner-side provisioning.** The pure logic is
+tested; the live save/list path needs a real Neon DB + Blob store + browser. Steps below.
+
 ## 2026-06-13 — Pause/resume verified on the mini; tail-drop bug fixed; affordances retuned
 
 Owner ran the branch locally (`op inject` → `.env.local`, `pnpm dev`) and verified the full
