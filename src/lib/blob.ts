@@ -24,13 +24,22 @@ export function audioExtension(mime: string): string {
 }
 
 // Stable, id-derived path. Single user, so a flat `audio/<id>.<ext>` namespace
-// is plenty; the id is time-sortable (ULID) so listings stay ordered.
+// is plenty; the id is time-sortable (ULID) so listings stay ordered. This is
+// the PRIVATE blob's pathname; playback never hits it directly (see below).
 export function audioBlobPath(id: string, mime: string): string {
   return `audio/${id}.${audioExtension(mime)}`;
 }
 
+// What we store in `audio_url` and what the <audio> element points at: a
+// same-origin path served by GET /api/audio/[id], which Vercel Authentication
+// gates. The route fetches the private blob server-side and streams it back, so
+// the blob is never world-readable — only an authenticated owner can play it.
+export function audioProxyPath(id: string): string {
+  return `/api/audio/${id}`;
+}
+
 export interface UploadedAudio {
-  url: string;
+  pathname: string;
   bytes: number;
   mime: string;
 }
@@ -39,13 +48,13 @@ export interface UploadedAudio {
 export type PutFn = (
   path: string,
   body: Blob | ArrayBuffer | Buffer,
-  opts: { access: "public"; contentType: string },
+  opts: { access: "private"; contentType: string },
 ) => Promise<{ url: string }>;
 
-// Upload one entry's audio and return the reference to store on the row.
-// `bytes` is passed in (the caller already knows the size) so we don't re-read
-// the body. v1 uses public access — the URL suffix is unguessable and the app
-// is owner-gated; a later pass can switch to private + signed reads.
+// Upload one entry's audio as a PRIVATE blob. `bytes` is passed in (the caller
+// already knows the size) so we don't re-read the body. Private access means the
+// returned url requires auth, so we don't use it — we return the deterministic
+// pathname and the caller serves it via audioProxyPath()/the gated proxy route.
 export async function uploadAudio(
   id: string,
   body: Blob | ArrayBuffer | Buffer,
@@ -53,9 +62,7 @@ export async function uploadAudio(
   bytes: number,
   putFn: PutFn = put as unknown as PutFn,
 ): Promise<UploadedAudio> {
-  const { url } = await putFn(audioBlobPath(id, mime), body, {
-    access: "public",
-    contentType: mime,
-  });
-  return { url, bytes, mime };
+  const pathname = audioBlobPath(id, mime);
+  await putFn(pathname, body, { access: "private", contentType: mime });
+  return { pathname, bytes, mime };
 }

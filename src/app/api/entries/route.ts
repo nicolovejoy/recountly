@@ -7,7 +7,7 @@
 
 import { ulid } from "@/lib/ulid";
 import { validateEntryInput, buildEntryRecord, type EntryInput } from "@/lib/entry";
-import { uploadAudio } from "@/lib/blob";
+import { uploadAudio, audioProxyPath } from "@/lib/blob";
 import { insertEntry, listEntries } from "@/lib/db";
 
 export async function GET() {
@@ -56,8 +56,10 @@ export async function POST(request: Request) {
   let audioUrl: string | null = null;
   if (hasAudio) {
     try {
-      const uploaded = await uploadAudio(id, audio, input.audioMime!, input.audioBytes!);
-      audioUrl = uploaded.url;
+      await uploadAudio(id, audio, input.audioMime!, input.audioBytes!);
+      // Store the gated proxy path, not the private blob URL — playback goes
+      // through GET /api/audio/[id] (auth-gated) which streams the private blob.
+      audioUrl = audioProxyPath(id);
     } catch (err) {
       // Audio is best-effort — a failed upload must not lose the transcript.
       // Drop the audio fields and save the entry without it.
