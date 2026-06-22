@@ -1,5 +1,10 @@
 # Traditional Recorder Control Implementation Plan
 
+> **ARCHIVED — executed and shipped (devlog 2026-06-04).** Kept only as a record of the
+> plan as written. The code has since moved/refactored (logic now in `src/lib/` +
+> `useRecorder`; the `stopping` status was later dropped); trust `src/` and `CLAUDE.md`, not
+> the file paths or line numbers below.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace the confusing "traffic-light-as-button" recorder control with the conventional voice-recorder pattern — one circular Record/Stop button, an elapsed timer, and a live mic-level bar — so it's instantly obvious how to record.

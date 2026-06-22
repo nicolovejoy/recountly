@@ -18,7 +18,7 @@ Structure (post-refactor, 2026-06-12): pure node-tested logic lives in `src/lib/
 cumulative timer math incl. `bankSegment`, caret planning, `primaryAction`); all
 imperative session state lives in the `useRecorder` hook; `RecorderClient` is a thin
 composition root over presentational `RecordButton`/`RecStatusLine`/`TranscriptEditor`/
-`EventLog` components. 111 vitest tests; new logic is written test-first.
+`EventLog` components. 107 vitest tests; new logic is written test-first.
 
 **Resume-able Pause is BUILT and real-speech verified (2026-06-13, on the mini).** Design:
 close-connection-on-pause / reconnect-on-resume (NOT keep-alive mute); pause cuts the mic
@@ -41,7 +41,7 @@ only the last continuous segment) — audio columns nullable. Layers: pure teste
 `src/lib/` (`db.ts` data-access over the SQL builders w/ injectable runner + lazy neon init;
 `blob.ts` upload; `entry-form.ts` the client↔route FormData contract) → `src/app/api/entries/route.ts`
 → MediaRecorder wired into `useRecorder` (fresh recorder per stream; Done finalizes audio
-**after** the FLUSH_MS window so the transcript tail is included). 111 vitest tests.
+**after** the FLUSH_MS window so the transcript tail is included). 107 vitest tests.
 
 ⚠️ **MediaRecorder WebM has no duration header** — Chrome then can't seek and mis-plays
 (shows ~8s of a 22s clip, tail only; the audio data is all there). Fixed by patching the
@@ -86,11 +86,12 @@ this file is a distilled pointer to its decided constraints.
 - `pnpm build` — production build
 - `pnpm start` — serve the production build
 - `pnpm lint` — ESLint
-- `pnpm test` — Vitest (node env, pure-logic unit tests; 91 and counting)
+- `pnpm test` — Vitest (node env, pure-logic unit tests; 107 and counting)
+- `pnpm db:migrate` — apply `db/schema.sql` to the `DATABASE_URL` in `.env.local`
 - `vercel` — deploy a preview; `vercel --prod` — deploy to production
 - Local secrets: `op inject -i .env.tpl -o .env.local` (1Password) mints the gitignored
-  `.env.local` holding `OPENAI_API_KEY`. `pnpm dev` auto-opens the browser; `pnpm dev:noopen`
-  doesn't.
+  `.env.local` holding `OPENAI_API_KEY`, `DATABASE_URL` (Neon), and `BLOB_READ_WRITE_TOKEN`
+  (Vercel Blob). `pnpm dev` auto-opens the browser; `pnpm dev:noopen` doesn't.
 
 ## What recountly is
 

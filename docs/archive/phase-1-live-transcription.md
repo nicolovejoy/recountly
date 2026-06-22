@@ -1,5 +1,13 @@
 # Phase 1 — Live transcription (design)
 
+> **ARCHIVED — historical design doc, executed and superseded.** Phase 1 shipped and was
+> verified. For the current state of the system see `CLAUDE.md` and the code in `src/`; this
+> file is kept only as a record of the original design. ⚠️ **Do not trust the model name
+> below:** this doc proposes `gpt-realtime-whisper`, which turned out to be **bogus** — it
+> mints a token fine, then `/v1/realtime/calls` hangs ~15s → a Cloudflare 504 the browser
+> misreports as a CORS error (cost a session to diagnose). Verified-good transcription
+> models: **`gpt-4o-transcribe`**, `gpt-4o-mini-transcribe`, `whisper-1`.
+
 **Goal (the core bet):** tap Record, speak, and watch your words appear on screen in
 real time. Persistence is **stubbed** — Phase 1 is done when live words render. No saving,
 no database, no audio upload yet (those are Phase 2).
