@@ -68,8 +68,8 @@ export function rowToEntry(row: EntryRow): EntryRecord {
     transcript: String(row.transcript),
     title: row.title == null ? null : String(row.title),
     tags: Array.isArray(row.tags) ? (row.tags as string[]) : [],
-    audioUrl: String(row.audio_url),
-    audioMime: String(row.audio_mime),
-    audioBytes: Number(row.audio_bytes),
+    audioUrl: row.audio_url == null ? null : String(row.audio_url),
+    audioMime: row.audio_mime == null ? null : String(row.audio_mime),
+    audioBytes: row.audio_bytes == null ? null : Number(row.audio_bytes),
   };
 }

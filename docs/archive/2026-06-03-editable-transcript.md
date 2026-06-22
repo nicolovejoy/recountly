@@ -1,5 +1,10 @@
 # Editable Transcript (Type + Talk) Implementation Plan
 
+> **ARCHIVED — executed and shipped (devlog 2026-06-03).** Kept only as a record of the
+> plan as written. The code has since moved/refactored (e.g. `src/app/transcript.ts` →
+> `src/lib/transcript.ts`, the recorder logic now lives in `useRecorder`); trust `src/` and
+> `CLAUDE.md`, not the file paths or line numbers below.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Turn the read-only transcript display into an editable textarea so the owner can type words (including ones hard for speech-to-text), edit freely while transcription streams in, and use Enter for a newline instead of accidentally stopping the recording.

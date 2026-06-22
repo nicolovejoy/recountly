@@ -12,9 +12,9 @@ CREATE TABLE IF NOT EXISTS entries (
   transcript       text         NOT NULL,
   title            text,                              -- LLM-generated later (Phase 4)
   tags             text[]       NOT NULL DEFAULT '{}',
-  audio_url        text         NOT NULL,             -- Vercel Blob reference
-  audio_mime       text         NOT NULL,
-  audio_bytes      integer      NOT NULL
+  audio_url        text,                              -- Vercel Blob reference; null = best-effort audio not saved
+  audio_mime       text,
+  audio_bytes      integer
 );
 
 -- Newest-first entry list (Phase 2) — order by when it was spoken.

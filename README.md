@@ -15,9 +15,11 @@ markdown folders). Three core bets: **live transcription**, a **phone-usable UI*
   appear via a direct browser→OpenAI WebRTC connection. Editable type-and-talk transcript,
   one circular record/pause/resume control, resume-able pause (close/reopen with a flush
   window so the tail isn't dropped).
-- **Phase 2 (persistence) — in progress.** The pure, tested core is in place (`src/lib/`
-  entry model, sortable IDs, parameterized SQL, audio mime picker; `db/schema.sql`). The
-  data layer, blob upload, save/list routes, and entry-list UI are next.
+- **Phase 2 (persistence) — complete & verified locally.** On Done the client POSTs the
+  transcript + best-effort audio to `/api/entries`; the route uploads audio to Vercel Blob
+  and inserts the entry into Neon. `EntryList` renders past entries newest-first with an
+  audio player. Real-speech verified on the mini (save → reload → entry persists, audio
+  plays full-length). Remaining: open the PR, then deploy + verify on Vercel prod.
 - Phases 3 (search) and 4 (LLM enrichment, imports, domain, auth) are roadmap.
 
 ## Stack
@@ -34,12 +36,16 @@ Requires Node 20 + pnpm 9 (the lockfile is v9.0; pnpm 10+ needs Node 22.13+).
 
 ```bash
 pnpm install
-op inject -i .env.tpl -o .env.local   # 1Password → gitignored .env.local (OPENAI_API_KEY)
+op inject -i .env.tpl -o .env.local   # 1Password → gitignored .env.local
+pnpm db:migrate                        # apply db/schema.sql to Neon (reads .env.local)
 pnpm dev                               # http://localhost:8255  (opens automatically)
 ```
 
-`pnpm dev:noopen` skips the auto-open. localhost is a secure origin, so the mic prompt works
-without https.
+`.env.local` holds three secrets, all sourced from 1Password via the committed `.env.tpl`:
+`OPENAI_API_KEY` (live transcription), `DATABASE_URL` (Neon), and `BLOB_READ_WRITE_TOKEN`
+(Vercel Blob). Local pulls these from `op` because Vercel marks the integration secrets
+write-only — `vercel env pull` returns them blank. `pnpm dev:noopen` skips the auto-open.
+localhost is a secure origin, so the mic prompt works without https.
 
 ### Commands
 
@@ -47,6 +53,7 @@ without https.
 |---|---|
 | `pnpm dev` | dev server (Turbopack) on :8255, auto-opens the browser |
 | `pnpm build` / `pnpm start` | production build / serve it |
+| `pnpm db:migrate` | apply `db/schema.sql` to the `DATABASE_URL` in `.env.local` |
 | `pnpm lint` | ESLint |
 | `pnpm test` | Vitest (node env, pure-logic unit tests) |
 
@@ -54,12 +61,17 @@ without https.
 
 - `src/lib/` — pure, node-tested logic (no React/DOM): realtime connection orchestration,
   event parsing, the recorder state machine, timer math, transcript caret planning, and the
-  Phase 2 entry/SQL/audio/ulid helpers.
+  Phase 2 persistence core (entry model, sortable ULIDs, parameterized SQL, the `db`/`blob`
+  data-access layers over injectable runners, the audio mime picker, and the client↔route
+  `entry-form` contract).
 - `src/app/` — routes, the `useRecorder` hook (all imperative session state), and the
   presentational components `RecorderClient` composes (`RecordButton`, `RecStatusLine`,
-  `TranscriptEditor`, `EventLog`).
-- `src/app/api/realtime-token/route.ts` — the only place `OPENAI_API_KEY` lives.
-- `db/schema.sql` — the `entries` table.
+  `TranscriptEditor`, `EventLog`, `EntryList`).
+- `src/app/api/realtime-token/route.ts` — mints ephemeral tokens; the only place
+  `OPENAI_API_KEY` lives.
+- `src/app/api/entries/route.ts` — `POST` saves an entry (multipart: transcript + audio),
+  `GET` lists newest-first.
+- `db/schema.sql` — the `entries` table; applied with `pnpm db:migrate`.
 
 New non-trivial logic is written test-first. CI (`.github/workflows/ci.yml`) runs lint +
 test + build on every push and PR.

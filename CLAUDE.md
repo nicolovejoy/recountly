@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Project status: Phase 1 complete (live transcription + editable transcript)
+## Project status: Phase 2 complete (live transcription + editable transcript + persistence)
 
 Live transcription works end-to-end: speak and words appear via a direct browser→OpenAI
 WebRTC connection (mic meter + in-app error surfacing in place). The transcript is now an
@@ -11,14 +11,14 @@ unit-tested `appendSegment`/`planAppend` helpers (`src/lib/transcript.ts`) witho
 disturbing the user's caret; Enter inserts a newline instead of toggling recording.
 Verified by real speech. The recorder control is one circular button whose action follows
 status via the tested `primaryAction` (record → pause → resume), with a `● REC m:ss` /
-`PAUSED` timer line and the live mic-level bar. Persistence is still stubbed.
+`PAUSED` timer line and the live mic-level bar. (Persistence landed in Phase 2 — below.)
 
 Structure (post-refactor, 2026-06-12): pure node-tested logic lives in `src/lib/`
 (realtime connection orchestration, typed event parsing, the recorder state machine,
 cumulative timer math incl. `bankSegment`, caret planning, `primaryAction`); all
 imperative session state lives in the `useRecorder` hook; `RecorderClient` is a thin
 composition root over presentational `RecordButton`/`RecStatusLine`/`TranscriptEditor`/
-`EventLog` components. 91 vitest tests; new logic is written test-first.
+`EventLog` components. 107 vitest tests; new logic is written test-first.
 
 **Resume-able Pause is BUILT and real-speech verified (2026-06-13, on the mini).** Design:
 close-connection-on-pause / reconnect-on-resume (NOT keep-alive mute); pause cuts the mic
@@ -31,13 +31,35 @@ the last VAD commit. An empty-buffer error from a no-op commit is benign and sup
 Affordance rule: **red == capturing only** (connecting = neutral spinner "don't speak yet";
 paused = blinking red).
 
-**Phase 2 foundation is BUILT and tested (DB-free core):** `src/lib/ulid.ts` (sortable IDs),
-`entry.ts` (EntryInput/EntryRecord + validate/build), `entry-sql.ts` (parameterized
-insert/list/get + rowToEntry), `audio.ts` (pickAudioMimeType), `db/schema.sql`. Two owner
-decisions gate the rest — see devlog: (1) DB driver + secrets (`DATABASE_URL`,
-`BLOB_READ_WRITE_TOKEN`), recommend `@neondatabase/serverless` + `@vercel/blob`; (2) how
-audio capture reconciles with the privacy-pause (pause cuts the mic, so one continuous
-file-per-entry needs a call). Then: data layer → blob upload → save/list routes → list UI.
+**Phase 2 (persistence) is BUILT and real-speech verified (2026-06-13, on the mini).**
+On Done, the client POSTs the transcript + best-effort audio to `POST /api/entries`
+(multipart); the route validates, mints a ULID, uploads audio to Vercel Blob, and inserts
+into Neon; `GET /api/entries` lists newest-first; `EntryList` renders cards with an audio
+player. Decisions made: **`@neondatabase/serverless` + `@vercel/blob`**; **audio is
+best-effort single-segment** (transcript always saved; a paused-then-resumed entry keeps
+only the last continuous segment) — audio columns nullable. Layers: pure tested core in
+`src/lib/` (`db.ts` data-access over the SQL builders w/ injectable runner + lazy neon init;
+`blob.ts` upload; `entry-form.ts` the client↔route FormData contract) → `src/app/api/entries/route.ts`
+→ MediaRecorder wired into `useRecorder` (fresh recorder per stream; Done finalizes audio
+**after** the FLUSH_MS window so the transcript tail is included). 107 vitest tests.
+
+⚠️ **MediaRecorder WebM has no duration header** — Chrome then can't seek and mis-plays
+(shows ~8s of a 22s clip, tail only; the audio data is all there). Fixed by patching the
+real duration into the blob client-side before upload via `fix-webm-duration`
+(`finalizeRecording` in `useRecorder`, WebM only). Verified: playback now spans the full clip.
+
+**Secrets/provisioning (mini):** Neon (`neon-gray-coin`) + Vercel Blob (`recountly-audio`)
+connected to the Vercel project. Vercel marks integration secrets write-only, so
+`vercel env pull` returns `DATABASE_URL`/`BLOB_READ_WRITE_TOKEN` **blank** — local uses
+**op** instead (`op inject`): items `recountly-neon` (field `credential`) + `recountly-blob`
+(field `BLOB_READ_WRITE_TOKEN`); prod stays on Vercel env. Apply schema with `pnpm db:migrate`.
+⚠️ The OpenAI key must belong to an **active** project — an archived-project key mints a
+401 "project archived" (cost a chunk of a session to diagnose).
+
+**Next:** open the PR for `phase-2-persistence` → deploy a preview + verify save/list on
+prod (set `DATABASE_URL`/`BLOB_READ_WRITE_TOKEN`/`OPENAI_API_KEY` are live in Vercel env) →
+Phase 3 (Postgres full-text search over transcripts + date filter). Deferred polish: the
+"audio not fully captured this entry" cue after a pause.
 
 ⚠️ Gotcha learned the hard way: the OpenAI `client_secrets` mint endpoint does **not**
 validate the transcription model name. A bogus name (we had `gpt-realtime-whisper`) mints
@@ -46,7 +68,8 @@ the browser misreports it as a CORS error. Verified-good models: `gpt-4o-transcr
 `gpt-4o-mini-transcribe`, `whisper-1`.
 
 **Read `recountly-build-prompt.md` in full before starting.** It is the authoritative spec;
-this file is a distilled pointer to its decided constraints.
+this file is a distilled pointer to its decided constraints. Executed Phase 1/UI design
+docs are archived under `docs/archive/` (historical only — trust `src/` + this file).
 
 ### Stack as built
 - **Next.js 16** (App Router, Turbopack), **React 19**, **TypeScript**, **Tailwind CSS 4**.
@@ -64,11 +87,12 @@ this file is a distilled pointer to its decided constraints.
 - `pnpm build` — production build
 - `pnpm start` — serve the production build
 - `pnpm lint` — ESLint
-- `pnpm test` — Vitest (node env, pure-logic unit tests; 91 and counting)
+- `pnpm test` — Vitest (node env, pure-logic unit tests; 107 and counting)
+- `pnpm db:migrate` — apply `db/schema.sql` to the `DATABASE_URL` in `.env.local`
 - `vercel` — deploy a preview; `vercel --prod` — deploy to production
 - Local secrets: `op inject -i .env.tpl -o .env.local` (1Password) mints the gitignored
-  `.env.local` holding `OPENAI_API_KEY`. `pnpm dev` auto-opens the browser; `pnpm dev:noopen`
-  doesn't.
+  `.env.local` holding `OPENAI_API_KEY`, `DATABASE_URL` (Neon), and `BLOB_READ_WRITE_TOKEN`
+  (Vercel Blob). `pnpm dev` auto-opens the browser; `pnpm dev:noopen` doesn't.
 
 ## What recountly is
 
@@ -162,3 +186,19 @@ Audio files are named by the entry's stable ID. The DB is the organization.
   building persistence.
 - Keep it simple. Personal tool for one user, not a product.
 - Use the latest stable Next.js (App Router conventions) and the current OpenAI SDK.
+
+<!-- SHARED-CONVENTIONS:BEGIN v=d5e16e653242 — auto-managed, do not edit here; source: prompt-lab/workflow/claude-md-shared.md (edit + re-sync) -->
+## Shared conventions
+
+<!-- These are Nico's cross-repo output rules. They're materialized into each repo's
+CLAUDE.md so every agent (local, cloud, third-party) sees them as plain text. Source
+of truth: prompt-lab/workflow/claude-md-shared.md — edit there and re-sync, never here. -->
+
+- **Clickable URLs.** When pointing at any web destination (dashboard, repo, PR, deploy, settings, docs, localhost), print the full bare URL — `https://example.com` or `http://localhost:8080` — on its own, never just the page's name and never a markdown `[label](url)` link. Nico's terminal auto-linkifies raw `https://` text, so a bare URL is one-click and stays copyable.
+
+- **Number your questions.** Any time you ask Nico more than one question, present them as a numbered list (1., 2., 3.) so he can answer by number with no ambiguity. A single standalone question needs no number.
+
+- **Self-contained smoke-test instructions.** When you ask Nico to manually test or verify an app or website, assume zero carried-over context — he should never scroll back or recall a URL/path/credential from earlier. Always include: the exact URL (full `https://…` or `http://localhost:…`, restated even if mentioned above), the precise steps in order, and what a pass vs. fail looks like. Repetition here is a feature, not clutter.
+
+- **No marker before a copy-paste command block.** Nico's terminal renders markdown bullets (`-`, `*`, `•`) as `●`, which breaks paste into zsh. The line directly above a fenced command block must be a plain-text label ending in a colon — never a bullet, dash, asterisk, or number. For loud copy targets, lead the label with `📋` + bold `COPY THE BELOW`, then a colon, then the block.
+<!-- SHARED-CONVENTIONS:END -->

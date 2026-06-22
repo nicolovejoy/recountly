@@ -5,22 +5,65 @@
 // logic lives in TranscriptEditor; this component wires them together and
 // keeps page-level UI policy (the Esc shortcut, header chrome).
 
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { primaryAction } from "@/lib/recorder-state";
-import { useRecorder } from "./useRecorder";
+import { buildEntryFormData } from "@/lib/entry-form";
+import { useRecorder, type RecordingResult } from "./useRecorder";
 import TranscriptEditor, { type TranscriptEditorHandle } from "./TranscriptEditor";
 import RecordButton from "./RecordButton";
 import RecStatusLine from "./RecStatusLine";
 import EventLog from "./EventLog";
+import EntryList from "./EntryList";
+
+type SaveState = "idle" | "saving" | "saved" | "error";
 
 // Inlined at build time from next.config.ts (PST, "MM/DD/YYYY HH:MM").
 const BUILD_TIME = process.env.NEXT_PUBLIC_BUILD_TIME;
 
 export default function RecorderClient() {
   const editorRef = useRef<TranscriptEditorHandle | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
+  const [saveState, setSaveState] = useState<SaveState>("idle");
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  // Done's save trigger: read the transcript the editor holds, attach the
+  // best-effort audio, POST it, then refresh the list. An empty transcript is a
+  // no-op (nothing was said/typed). Audio failing is fine — the route still
+  // saves the transcript; here we just send whatever audio we captured.
+  const onStop = useCallback((result: RecordingResult) => {
+    const transcript = editorRef.current?.getValue().trim() ?? "";
+    if (!transcript) {
+      setSaveState("idle");
+      return;
+    }
+    setSaveState("saving");
+    setSaveError(null);
+    const body = buildEntryFormData({
+      transcript,
+      durationSeconds: result.durationSeconds,
+      audio: result.audioBlob
+        ? { blob: result.audioBlob, mime: result.audioMime ?? "audio/webm" }
+        : null,
+    });
+    fetch("/api/entries", { method: "POST", body })
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`save failed (${res.status}): ${await res.text()}`);
+      })
+      .then(() => {
+        editorRef.current?.clear();
+        setSaveState("saved");
+        setReloadKey((k) => k + 1);
+      })
+      .catch((err) => {
+        setSaveError(err instanceof Error ? err.message : String(err));
+        setSaveState("error");
+      });
+  }, []);
+
   const { status, elapsedSec, interim, errorMsg, log, start, pause, resume, stop, meterRef } =
     useRecorder({
       onSegment: (segment) => editorRef.current?.append(segment),
+      onStop,
     });
 
   // The one circular control's action is derived from status (single tested
@@ -94,6 +137,16 @@ export default function RecorderClient() {
       )}
 
       <TranscriptEditor ref={editorRef} interim={interim} />
+
+      {saveState === "saving" && <p className="text-xs text-foreground/40">Saving…</p>}
+      {saveState === "saved" && <p className="text-xs text-green-600">Saved ✓</p>}
+      {saveState === "error" && (
+        <p className="rounded-lg border border-red-500/30 bg-red-500/5 px-4 py-3 text-sm text-red-500">
+          Couldn’t save: {saveError}
+        </p>
+      )}
+
+      <EntryList reloadKey={reloadKey} />
 
       <EventLog log={log} />
     </main>

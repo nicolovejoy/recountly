@@ -1,5 +1,65 @@
 # recountly devlog
 
+## 2026-06-13 — Phase 2 persistence built end-to-end (code-complete; runtime verify pending)
+
+Both gating decisions settled with the owner, then the whole save/list path built
+test-first on the existing DB-free core. Branch `phase-2-persistence`.
+
+**Decisions:**
+1. **DB driver:** `@neondatabase/serverless` + `@vercel/blob` (confirmed). neon's
+   `sql.query(text, values)` runs the existing `entry-sql.ts` builders verbatim.
+2. **Audio vs privacy-pause:** best-effort **single continuous segment**. Transcript is
+   ALWAYS saved; audio is whatever the last continuous capture produced (a paused-then-
+   resumed entry keeps only the post-resume segment — owner pauses rarely). Audio columns
+   made nullable. ⚠️ **Deferred TODO:** a visual "not capturing full audio this entry" cue
+   when a pause splits a recording — agreed but not built ("yet").
+
+**Built (each a green checkpoint — 91→111 tests, lint, build):**
+- `entry.ts`/`entry-sql.ts`/`schema.sql`: audio fields nullable; `validateEntryInput`
+  validates audio only when present.
+- `db.ts`: insert/list/get over the SQL builders; injectable `QueryRunner` (tested with a
+  fake); **lazy neon init** so an unset `DATABASE_URL` can't crash `next build`.
+- `blob.ts`: `audioExtension`/`audioBlobPath` (pure) + `uploadAudio` over `put()`, public v1.
+- `POST/GET /api/entries` (Next 16 Web Request/Response): POST takes multipart
+  (transcript + durationSeconds + optional audio File), validates, mints a ULID, uploads
+  audio best-effort (a failed upload still saves the transcript), inserts, returns 201.
+- `entry-form.ts`: `buildEntryFormData` — the client↔route field contract, tested.
+- `useRecorder`: a fresh `MediaRecorder` per mic stream (resume discards prior chunks);
+  Done finalizes audio then fires `onStop` **after the FLUSH_MS window** so the final
+  transcript tail is in the editor before the save reads it (the subtle ordering bug here).
+- `TranscriptEditor.clear()`, `RecorderClient` Done→save + save-status line, `EntryList`
+  (newest-first, audio player per entry).
+
+**Provisioned + persistence verified (2026-06-13, on the mini).** Neon (`neon-gray-coin`)
++ Vercel Blob (`recountly-audio`) connected to the project. Secrets: Vercel integration
+vars are write-only (`vercel env pull` returns them blank), so local uses **op** items
+(`recountly-neon` field `credential`, `recountly-blob` field `BLOB_READ_WRITE_TOKEN`) via
+`op inject`; Vercel env stays the prod source. Schema applied with `pnpm db:migrate`.
+`POST`+`GET /api/entries` round-trips a real entry — Neon insert + live Vercel Blob upload
+(got a public blob URL) — and it renders in the `EntryList` UI with 0 console errors
+(Playwright). Test entry + blob cleaned up after.
+
+**Live-speech leg verified (2026-06-13, on the mini) — Phase 2 acceptance met.** Recorded
+real speech → words live → Done → entry saved + listed + audio plays back full-length.
+
+⚠️ **Bug found + fixed in that verification — MediaRecorder WebM has no duration header.**
+First playback only played the tail (~8s of a 22s clip) and showed a wrong duration.
+ffprobe confirmed `duration=N/A` with the full ~137KB of Opus present — data intact, just
+no container duration, so Chrome can't seek and mis-plays. Fix: patch the real duration into
+the blob before upload with `fix-webm-duration` (added dep) in `finalizeRecording`
+(`recorderStartRef` stamps the recorder start; WebM only — mp4 already carries it). Re-verified:
+full-length playback.
+
+**Provisioning gotchas worth remembering:** (1) Vercel integration secrets are write-only —
+`vercel env pull` returns `DATABASE_URL`/`BLOB_READ_WRITE_TOKEN` blank; grab the real values
+from the provider consoles (Neon connection string; Blob store token) and keep them in op.
+(2) Blob connect dialog: must tick **"Add a read-write token env var"** or you get no
+`BLOB_READ_WRITE_TOKEN`. (3) OpenAI key must be in an **active** project — an archived-project
+key mints a 401 "project archived" (looks like a key problem, isn't).
+
+**Still deferred:** the "audio not fully captured this entry" cue after a pause (best-effort
+audio means a paused entry keeps only the last segment — UI should hint that).
+
 ## 2026-06-13 — Pause/resume verified on the mini; tail-drop bug fixed; affordances retuned
 
 Owner ran the branch locally (`op inject` → `.env.local`, `pnpm dev`) and verified the full
