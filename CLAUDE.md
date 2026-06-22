@@ -68,7 +68,8 @@ the browser misreports it as a CORS error. Verified-good models: `gpt-4o-transcr
 `gpt-4o-mini-transcribe`, `whisper-1`.
 
 **Read `recountly-build-prompt.md` in full before starting.** It is the authoritative spec;
-this file is a distilled pointer to its decided constraints.
+this file is a distilled pointer to its decided constraints. Executed Phase 1/UI design
+docs are archived under `docs/archive/` (historical only — trust `src/` + this file).
 
 ### Stack as built
 - **Next.js 16** (App Router, Turbopack), **React 19**, **TypeScript**, **Tailwind CSS 4**.
