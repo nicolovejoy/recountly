@@ -20,6 +20,17 @@ export interface EntryInput {
   recordedAt?: string;
 }
 
+// LLM-generated enrichment (Phase 4 thread 1). Produced best-effort on save by
+// enrich.ts; the domain owns the shape so entry.ts stays free of the SDK. title
+// and tags predate enrichment (they were always on EntryRecord) but are now
+// populated from here; summary/model are new.
+export interface EntryEnrichment {
+  title: string | null;
+  tags: string[];
+  summary: string | null;
+  model: string; // which model produced this (e.g. claude-haiku-4-5)
+}
+
 export interface EntryRecord {
   id: string;
   recordedAt: string; // ISO timestamptz
@@ -27,8 +38,14 @@ export interface EntryRecord {
   updatedAt: string;
   durationSeconds: number;
   transcript: string;
-  title: string | null; // LLM-generated later (Phase 4)
+  title: string | null; // LLM-generated (Phase 4 enrichment)
   tags: string[];
+  // LLM-generated summary; null until enriched (or if enrichment failed).
+  summary: string | null;
+  // When enrichment last ran (ISO timestamptz); null = not yet enriched.
+  enrichedAt: string | null;
+  // Which model produced the enrichment; null = not yet enriched.
+  enrichmentModel: string | null;
   // Null when the entry saved no audio (best-effort — see EntryInput).
   audioUrl: string | null;
   audioMime: string | null;
@@ -65,13 +82,19 @@ export interface BuildContext {
   id: string;
   audioUrl: string | null; // null when no audio was captured
   now: Date;
+  // Best-effort LLM enrichment computed by the caller before building. Absent
+  // (or null) when enrichment didn't run or failed — the entry still saves,
+  // with title/tags/summary empty and enrichedAt null.
+  enrichment?: EntryEnrichment | null;
 }
 
 // Assembles the stored row from validated input plus the server-assigned id,
 // blob URL, and timestamps. recordedAt defaults to now; created/updated are
-// always stamped now. title/tags start empty (enriched later).
+// always stamped now. title/tags/summary come from enrichment when present,
+// else stay empty (a later backfill can fill them in).
 export function buildEntryRecord(input: EntryInput, ctx: BuildContext): EntryRecord {
   const nowIso = ctx.now.toISOString();
+  const enr = ctx.enrichment ?? null;
   return {
     id: ctx.id,
     recordedAt: input.recordedAt ?? nowIso,
@@ -79,8 +102,11 @@ export function buildEntryRecord(input: EntryInput, ctx: BuildContext): EntryRec
     updatedAt: nowIso,
     durationSeconds: input.durationSeconds,
     transcript: input.transcript.trim(),
-    title: null,
-    tags: [],
+    title: enr?.title ?? null,
+    tags: enr?.tags ?? [],
+    summary: enr?.summary ?? null,
+    enrichedAt: enr ? nowIso : null,
+    enrichmentModel: enr?.model ?? null,
     audioUrl: ctx.audioUrl,
     audioMime: input.audioMime ?? null,
     audioBytes: input.audioBytes ?? null,

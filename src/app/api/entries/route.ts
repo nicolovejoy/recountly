@@ -6,9 +6,16 @@
 // route leans on (validate, build, SQL, blob path) is unit-tested in src/lib.
 
 import { ulid } from "@/lib/ulid";
-import { validateEntryInput, buildEntryRecord, type EntryInput } from "@/lib/entry";
+import {
+  validateEntryInput,
+  buildEntryRecord,
+  type EntryInput,
+  type EntryEnrichment,
+} from "@/lib/entry";
 import { uploadAudio, audioProxyPath } from "@/lib/blob";
 import { insertEntry, searchEntries } from "@/lib/db";
+import { enrichTranscript } from "@/lib/enrich";
+import { getAnthropic } from "@/lib/anthropic";
 import { parseSearchFilters } from "@/lib/search";
 import { getServerSession } from "@/lib/auth-server";
 
@@ -83,7 +90,18 @@ export async function POST(request: Request) {
     }
   }
 
-  const record = buildEntryRecord(input, { id, audioUrl, now: new Date() });
+  // Best-effort LLM enrichment (Phase 4): one structured call generates a
+  // title + tags + summary. Like audio, a failure must not fail the save — the
+  // raw transcript is untouched and a later backfill can fill enrichment in.
+  // getAnthropic() throws if the key is unset; the catch covers that too.
+  let enrichment: EntryEnrichment | null = null;
+  try {
+    enrichment = await enrichTranscript(input.transcript.trim(), getAnthropic());
+  } catch (err) {
+    console.error("enrichment failed; saving entry without it", err);
+  }
+
+  const record = buildEntryRecord(input, { id, audioUrl, now: new Date(), enrichment });
 
   try {
     await insertEntry(record);

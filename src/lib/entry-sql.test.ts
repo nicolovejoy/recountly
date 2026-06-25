@@ -4,9 +4,11 @@ import {
   listEntriesSql,
   searchEntriesSql,
   getEntrySql,
+  updateEnrichmentSql,
+  listUnenrichedSql,
   rowToEntry,
 } from "./entry-sql";
-import type { EntryRecord } from "./entry";
+import type { EntryRecord, EntryEnrichment } from "./entry";
 
 const rec: EntryRecord = {
   id: "01HXAMPLE0000000000000000",
@@ -17,6 +19,9 @@ const rec: EntryRecord = {
   transcript: "a walk and a thought",
   title: null,
   tags: [],
+  summary: null,
+  enrichedAt: null,
+  enrichmentModel: null,
   audioUrl: "https://blob.example/x.webm",
   audioMime: "audio/webm",
   audioBytes: 12_345,
@@ -24,10 +29,12 @@ const rec: EntryRecord = {
 };
 
 describe("insertEntrySql", () => {
-  it("parameterizes all 12 columns in order", () => {
+  it("parameterizes all 15 columns in order", () => {
     const q = insertEntrySql(rec);
     expect(q.text).toMatch(/^INSERT INTO entries \(/);
-    expect(q.text).toContain("VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)");
+    expect(q.text).toContain(
+      "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)",
+    );
     expect(q.values).toEqual([
       rec.id,
       rec.recordedAt,
@@ -41,6 +48,9 @@ describe("insertEntrySql", () => {
       rec.audioMime,
       rec.audioBytes,
       rec.audioComplete,
+      rec.summary,
+      rec.enrichedAt,
+      rec.enrichmentModel,
     ]);
   });
 
@@ -120,6 +130,50 @@ describe("getEntrySql", () => {
   });
 });
 
+describe("updateEnrichmentSql", () => {
+  const enrichment: EntryEnrichment = {
+    title: "A Morning Walk",
+    tags: ["walk", "reflection"],
+    summary: "Walked and reflected.",
+    model: "claude-haiku-4-5",
+  };
+
+  it("updates the enrichment columns + updated_at, filtered by id", () => {
+    const q = updateEnrichmentSql("01HX", enrichment, "2026-06-25T12:00:00.000Z");
+    expect(q.text).toMatch(/^UPDATE entries SET/);
+    expect(q.text).toContain("title = $1");
+    expect(q.text).toContain("tags = $2");
+    expect(q.text).toContain("summary = $3");
+    expect(q.text).toContain("enriched_at = $4");
+    expect(q.text).toContain("enrichment_model = $5");
+    expect(q.text).toContain("updated_at = $6");
+    expect(q.text).toContain("WHERE id = $7");
+    expect(q.values).toEqual([
+      "A Morning Walk",
+      ["walk", "reflection"],
+      "Walked and reflected.",
+      "2026-06-25T12:00:00.000Z",
+      "claude-haiku-4-5",
+      "2026-06-25T12:00:00.000Z",
+      "01HX",
+    ]);
+  });
+});
+
+describe("listUnenrichedSql", () => {
+  it("selects never-enriched rows newest-first with a limit", () => {
+    const q = listUnenrichedSql(10);
+    expect(q.text).toContain("WHERE enriched_at IS NULL");
+    expect(q.text).toContain("ORDER BY recorded_at DESC");
+    expect(q.text).toContain("LIMIT $1");
+    expect(q.values).toEqual([10]);
+  });
+
+  it("defaults the limit to 50", () => {
+    expect(listUnenrichedSql().values).toEqual([50]);
+  });
+});
+
 describe("rowToEntry", () => {
   it("maps a Date-typed row (node-postgres) to camelCase ISO strings", () => {
     const entry = rowToEntry({
@@ -135,6 +189,9 @@ describe("rowToEntry", () => {
       audio_mime: "audio/webm",
       audio_bytes: 999,
       audio_complete: true,
+      summary: "A short reflection.",
+      enriched_at: new Date("2026-06-13T02:00:00.000Z"),
+      enrichment_model: "claude-haiku-4-5",
     });
     expect(entry).toEqual({
       id: "01HX",
@@ -145,6 +202,9 @@ describe("rowToEntry", () => {
       transcript: "hello",
       title: null,
       tags: ["a", "b"],
+      summary: "A short reflection.",
+      enrichedAt: "2026-06-13T02:00:00.000Z",
+      enrichmentModel: "claude-haiku-4-5",
       audioUrl: "https://blob/x.webm",
       audioMime: "audio/webm",
       audioBytes: 999,

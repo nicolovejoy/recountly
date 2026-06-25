@@ -9,11 +9,13 @@ import {
   listEntriesSql,
   searchEntriesSql,
   getEntrySql,
+  updateEnrichmentSql,
+  listUnenrichedSql,
   rowToEntry,
   type EntryRow,
   type SearchFilters,
 } from "./entry-sql";
-import type { EntryRecord } from "./entry";
+import type { EntryRecord, EntryEnrichment } from "./entry";
 
 // The one capability we need from the driver: run a parameterized query and get
 // rows back. neon()'s `sql.query(text, params)` returns rows-by-default, which
@@ -70,4 +72,25 @@ export async function getEntry(
   const { text, values } = getEntrySql(id);
   const rows = await runner.query(text, values);
   return rows.length ? rowToEntry(rows[0]) : null;
+}
+
+// Phase 4 enrichment: write the LLM fields onto an existing row.
+export async function updateEntryEnrichment(
+  id: string,
+  enrichment: EntryEnrichment,
+  nowIso: string,
+  runner: QueryRunner = defaultRunner(),
+): Promise<void> {
+  const { text, values } = updateEnrichmentSql(id, enrichment, nowIso);
+  await runner.query(text, values);
+}
+
+// Rows never enriched (newest-first), for the backfill endpoint.
+export async function listUnenriched(
+  limit = 50,
+  runner: QueryRunner = defaultRunner(),
+): Promise<EntryRecord[]> {
+  const { text, values } = listUnenrichedSql(limit);
+  const rows = await runner.query(text, values);
+  return rows.map(rowToEntry);
 }

@@ -105,10 +105,32 @@ export default function EntryList({ reloadKey }: { reloadKey: number }) {
               key={e.id}
               className="flex flex-col gap-2 rounded-xl border border-foreground/10 p-4"
             >
-              <div className="flex items-center justify-between text-xs text-foreground/50">
-                <span>{e.title ?? formatWhen(e.recordedAt)}</span>
-                <span className="tabular-nums">{formatElapsed(e.durationSeconds)}</span>
+              <div className="flex items-baseline justify-between gap-3">
+                <span className="text-sm font-medium text-foreground/90">
+                  {e.title ?? formatWhen(e.recordedAt)}
+                </span>
+                <span className="shrink-0 text-xs tabular-nums text-foreground/50">
+                  {formatElapsed(e.durationSeconds)}
+                </span>
               </div>
+              {e.title && (
+                <span className="text-xs text-foreground/40">{formatWhen(e.recordedAt)}</span>
+              )}
+              {e.summary && (
+                <p className="text-sm italic text-foreground/60">{e.summary}</p>
+              )}
+              {e.tags.length > 0 && (
+                <ul className="flex flex-wrap gap-1.5">
+                  {e.tags.map((tag) => (
+                    <li
+                      key={tag}
+                      className="rounded-full bg-foreground/5 px-2 py-0.5 text-xs text-foreground/60"
+                    >
+                      {tag}
+                    </li>
+                  ))}
+                </ul>
+              )}
               <button
                 type="button"
                 onClick={() => toggle(e.id)}

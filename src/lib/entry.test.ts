@@ -109,6 +109,40 @@ describe("buildEntryRecord", () => {
     expect(rec.audioComplete).toBeNull();
   });
 
+  it("leaves enrichment fields empty when no enrichment is given", () => {
+    const rec = buildEntryRecord(validInput, { id, audioUrl, now });
+    expect(rec.title).toBeNull();
+    expect(rec.tags).toEqual([]);
+    expect(rec.summary).toBeNull();
+    expect(rec.enrichedAt).toBeNull();
+    expect(rec.enrichmentModel).toBeNull();
+  });
+
+  it("threads enrichment in, stamping enrichedAt = now", () => {
+    const rec = buildEntryRecord(validInput, {
+      id,
+      audioUrl,
+      now,
+      enrichment: {
+        title: "A Morning Walk",
+        tags: ["walk", "reflection"],
+        summary: "Walked and reflected on the rewrite.",
+        model: "claude-haiku-4-5",
+      },
+    });
+    expect(rec.title).toBe("A Morning Walk");
+    expect(rec.tags).toEqual(["walk", "reflection"]);
+    expect(rec.summary).toBe("Walked and reflected on the rewrite.");
+    expect(rec.enrichmentModel).toBe("claude-haiku-4-5");
+    expect(rec.enrichedAt).toBe(now.toISOString());
+  });
+
+  it("treats a null enrichment like no enrichment", () => {
+    const rec = buildEntryRecord(validInput, { id, audioUrl, now, enrichment: null });
+    expect(rec.title).toBeNull();
+    expect(rec.enrichedAt).toBeNull();
+  });
+
   it("defaults audioComplete to true when audio is present", () => {
     const rec = buildEntryRecord(validInput, { id, audioUrl, now });
     expect(rec.audioComplete).toBe(true);
