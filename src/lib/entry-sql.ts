@@ -42,6 +42,47 @@ export function listEntriesSql(limit = 50): SqlQuery {
   };
 }
 
+// Phase 3 search. Free-text over the generated transcript_tsv (title+transcript)
+// plus an optional inclusive recorded_at date range. With no filters it degrades
+// to the same newest-first list as listEntriesSql.
+export interface SearchFilters {
+  query?: string; // free text; matched via websearch_to_tsquery
+  from?: string; // YYYY-MM-DD, inclusive lower bound on recorded_at
+  to?: string; // YYYY-MM-DD, inclusive — covers the whole day
+  limit?: number;
+}
+
+export function searchEntriesSql(f: SearchFilters = {}): SqlQuery {
+  const where: string[] = [];
+  const values: unknown[] = [];
+  let p = 0;
+  const next = (v: unknown) => {
+    values.push(v);
+    return `$${++p}`;
+  };
+
+  const query = f.query?.trim();
+  let rankExpr = "";
+  if (query) {
+    // One placeholder reused in both the filter and the ranking expression.
+    const ph = next(query);
+    where.push(`transcript_tsv @@ websearch_to_tsquery('english', ${ph})`);
+    rankExpr = `ts_rank(transcript_tsv, websearch_to_tsquery('english', ${ph}))`;
+  }
+  if (f.from) where.push(`recorded_at >= ${next(f.from)}::date`);
+  if (f.to) where.push(`recorded_at < (${next(f.to)}::date + 1)`);
+
+  const whereSql = where.length ? ` WHERE ${where.join(" AND ")}` : "";
+  const orderSql = rankExpr
+    ? ` ORDER BY ${rankExpr} DESC, recorded_at DESC`
+    : ` ORDER BY recorded_at DESC`;
+  const limitPh = next(f.limit ?? 50);
+  return {
+    text: `SELECT ${COLUMNS} FROM entries${whereSql}${orderSql} LIMIT ${limitPh}`,
+    values,
+  };
+}
+
 export function getEntrySql(id: string): SqlQuery {
   return {
     text: `SELECT ${COLUMNS} FROM entries WHERE id = $1`,

@@ -7,9 +7,11 @@ import { neon } from "@neondatabase/serverless";
 import {
   insertEntrySql,
   listEntriesSql,
+  searchEntriesSql,
   getEntrySql,
   rowToEntry,
   type EntryRow,
+  type SearchFilters,
 } from "./entry-sql";
 import type { EntryRecord } from "./entry";
 
@@ -48,6 +50,15 @@ export async function listEntries(
   runner: QueryRunner = defaultRunner(),
 ): Promise<EntryRecord[]> {
   const { text, values } = listEntriesSql(limit);
+  const rows = await runner.query(text, values);
+  return rows.map(rowToEntry);
+}
+
+export async function searchEntries(
+  filters: SearchFilters = {},
+  runner: QueryRunner = defaultRunner(),
+): Promise<EntryRecord[]> {
+  const { text, values } = searchEntriesSql(filters);
   const rows = await runner.query(text, values);
   return rows.map(rowToEntry);
 }

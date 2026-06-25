@@ -8,15 +8,18 @@
 import { ulid } from "@/lib/ulid";
 import { validateEntryInput, buildEntryRecord, type EntryInput } from "@/lib/entry";
 import { uploadAudio, audioProxyPath } from "@/lib/blob";
-import { insertEntry, listEntries } from "@/lib/db";
+import { insertEntry, searchEntries } from "@/lib/db";
+import { parseSearchFilters } from "@/lib/search";
 import { getServerSession } from "@/lib/auth-server";
 
-export async function GET() {
+export async function GET(request: Request) {
   if (!(await getServerSession())) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
   try {
-    const entries = await listEntries();
+    // ?q&from&to drive Phase 3 search; with none set this is the newest-first list.
+    const filters = parseSearchFilters(new URL(request.url).searchParams);
+    const entries = await searchEntries(filters);
     return Response.json({ entries });
   } catch (err) {
     return Response.json(

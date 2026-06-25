@@ -1,13 +1,16 @@
 "use client";
 
-// Newest-first list of saved entries (Phase 2). Fetches GET /api/entries on
-// mount and whenever reloadKey changes (RecorderClient bumps it after a save).
-// Presentational only — the API already returns entries ordered recorded_at
-// DESC, so this just renders them.
+// Saved entries (Phase 2) + search/filter (Phase 3). Holds the filter state,
+// debounces the free-text query, and fetches GET /api/entries?q&from&to. The API
+// returns rows already ordered (relevance when searching, else newest-first), so
+// this just renders them. Refetches when filters change or RecorderClient bumps
+// reloadKey after a save. Tap a transcript to expand it full-length.
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { formatElapsed } from "@/lib/elapsed";
+import { buildSearchQueryString } from "@/lib/search";
 import type { EntryRecord } from "@/lib/entry";
+import SearchBar from "./SearchBar";
 
 function formatWhen(iso: string): string {
   const d = new Date(iso);
@@ -15,12 +18,29 @@ function formatWhen(iso: string): string {
 }
 
 export default function EntryList({ reloadKey }: { reloadKey: number }) {
+  const [query, setQuery] = useState("");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
   const [entries, setEntries] = useState<EntryRecord[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+
+  // Debounce the free-text box so we don't fire a request per keystroke.
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedQuery(query), 300);
+    return () => clearTimeout(t);
+  }, [query]);
+
+  const queryString = useMemo(
+    () => buildSearchQueryString({ query: debouncedQuery, from, to }),
+    [debouncedQuery, from, to],
+  );
+  const isSearching = Boolean(debouncedQuery || from || to);
 
   useEffect(() => {
     let alive = true;
-    fetch("/api/entries")
+    fetch(`/api/entries${queryString}`)
       .then(async (res) => {
         if (!res.ok) throw new Error(`list route ${res.status}`);
         return (await res.json()) as { entries: EntryRecord[] };
@@ -36,40 +56,84 @@ export default function EntryList({ reloadKey }: { reloadKey: number }) {
     return () => {
       alive = false;
     };
-  }, [reloadKey]);
+  }, [queryString, reloadKey]);
+
+  function toggle(id: string) {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
 
   return (
     <section className="flex flex-col gap-3">
       <h2 className="text-sm font-medium text-foreground/50">Entries</h2>
+
+      <SearchBar
+        query={query}
+        from={from}
+        to={to}
+        onChange={(p) => {
+          if (p.query !== undefined) setQuery(p.query);
+          if (p.from !== undefined) setFrom(p.from);
+          if (p.to !== undefined) setTo(p.to);
+        }}
+        onClear={() => {
+          setQuery("");
+          setFrom("");
+          setTo("");
+        }}
+      />
 
       {error && (
         <p className="text-sm text-red-500">Couldn’t load entries: {error}</p>
       )}
 
       {entries && entries.length === 0 && !error && (
-        <p className="text-sm text-foreground/40">No entries yet — record one above.</p>
+        <p className="text-sm text-foreground/40">
+          {isSearching ? "No entries match." : "No entries yet — record one above."}
+        </p>
       )}
 
       <ul className="flex flex-col gap-3">
-        {entries?.map((e) => (
-          <li
-            key={e.id}
-            className="flex flex-col gap-2 rounded-xl border border-foreground/10 p-4"
-          >
-            <div className="flex items-center justify-between text-xs text-foreground/50">
-              <span>{e.title ?? formatWhen(e.recordedAt)}</span>
-              <span className="tabular-nums">{formatElapsed(e.durationSeconds)}</span>
-            </div>
-            <p className="line-clamp-3 whitespace-pre-wrap text-sm leading-relaxed text-foreground/80">
-              {e.transcript}
-            </p>
-            {e.audioUrl && (
-              <audio controls preload="none" src={e.audioUrl} className="mt-1 w-full">
-                <track kind="captions" />
-              </audio>
-            )}
-          </li>
-        ))}
+        {entries?.map((e) => {
+          const isOpen = expanded.has(e.id);
+          return (
+            <li
+              key={e.id}
+              className="flex flex-col gap-2 rounded-xl border border-foreground/10 p-4"
+            >
+              <div className="flex items-center justify-between text-xs text-foreground/50">
+                <span>{e.title ?? formatWhen(e.recordedAt)}</span>
+                <span className="tabular-nums">{formatElapsed(e.durationSeconds)}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => toggle(e.id)}
+                aria-expanded={isOpen}
+                className="text-left"
+              >
+                <p
+                  className={`whitespace-pre-wrap text-sm leading-relaxed text-foreground/80 ${
+                    isOpen ? "" : "line-clamp-3"
+                  }`}
+                >
+                  {e.transcript}
+                </p>
+                <span className="mt-1 inline-block text-xs text-foreground/40">
+                  {isOpen ? "Show less" : "Show more"}
+                </span>
+              </button>
+              {e.audioUrl && (
+                <audio controls preload="none" src={e.audioUrl} className="mt-1 w-full">
+                  <track kind="captions" />
+                </audio>
+              )}
+            </li>
+          );
+        })}
       </ul>
     </section>
   );

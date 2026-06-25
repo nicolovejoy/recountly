@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { insertEntry, listEntries, getEntry, type QueryRunner } from "./db";
+import { insertEntry, listEntries, searchEntries, getEntry, type QueryRunner } from "./db";
 import type { EntryRecord } from "./entry";
 import type { EntryRow } from "./entry-sql";
 
@@ -68,6 +68,23 @@ describe("listEntries", () => {
   it("defaults the limit to 50", async () => {
     const { runner, calls } = fakeRunner([]);
     await listEntries(undefined, runner);
+    expect(calls[0].values).toEqual([50]);
+  });
+});
+
+describe("searchEntries", () => {
+  it("runs the full-text + range query and maps rows", async () => {
+    const { runner, calls } = fakeRunner([sampleRow]);
+    const out = await searchEntries({ query: "walk", from: "2026-06-01" }, runner);
+    expect(calls[0].text).toContain("websearch_to_tsquery('english', $1)");
+    expect(calls[0].values).toEqual(["walk", "2026-06-01", 50]);
+    expect(out[0]).toMatchObject({ id: "01HX" });
+  });
+
+  it("with no filters falls back to the newest-first list", async () => {
+    const { runner, calls } = fakeRunner([]);
+    await searchEntries({}, runner);
+    expect(calls[0].text).toContain("ORDER BY recorded_at DESC");
     expect(calls[0].values).toEqual([50]);
   });
 });

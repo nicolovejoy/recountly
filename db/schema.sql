@@ -20,5 +20,12 @@ CREATE TABLE IF NOT EXISTS entries (
 -- Newest-first entry list (Phase 2) — order by when it was spoken.
 CREATE INDEX IF NOT EXISTS entries_recorded_at_desc ON entries (recorded_at DESC);
 
--- NOTE (Phase 3): full-text search will add a tsvector + GIN index over
--- transcript. Deferred until the search phase so we don't carry unused indexes.
+-- Phase 3 full-text search. A STORED generated column keeps the tsvector in
+-- lockstep with title+transcript automatically (no trigger), and the GIN index
+-- makes `transcript_tsv @@ websearch_to_tsquery(...)` fast. 'english' config.
+ALTER TABLE entries ADD COLUMN IF NOT EXISTS transcript_tsv tsvector
+  GENERATED ALWAYS AS (
+    to_tsvector('english', coalesce(title, '') || ' ' || transcript)
+  ) STORED;
+
+CREATE INDEX IF NOT EXISTS entries_transcript_tsv_gin ON entries USING GIN (transcript_tsv);
