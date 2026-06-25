@@ -4,6 +4,8 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     environment: "node",
-    include: ["src/**/*.test.ts"],
+    // src holds the app's pure logic; scripts holds one-off tools whose pure
+    // parsers are unit-tested alongside (e.g. the journal markdown importer).
+    include: ["src/**/*.test.ts", "scripts/**/*.test.mjs"],
   },
 });
