@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Project status: Phase 3 complete + live on recountly.org, auth-gated (live transcription + editable transcript + persistence + Better Auth + full-text search)
+## Project status: Phase 4 thread 1 shipped — live on recountly.org, auth-gated (live transcription + editable transcript + persistence + Better Auth + full-text search + LLM enrichment + markdown import)
 
 Live transcription works end-to-end: speak and words appear via a direct browser→OpenAI
 WebRTC connection (mic meter + in-app error surfacing in place). The transcript is now an
@@ -114,47 +114,43 @@ partial — transcript is complete" cue when false; old rows stay null). (2) `au
 30-day rolling session (`updateAge` 1 day) + `rateLimit.storage: "database"` so Better
 Auth's built-in `/sign-in` 3-req/10s throttle holds across Vercel Fluid instances (needs the
 `rateLimit` table — `pnpm db:auth-migrate`; verified it records attempts in prod). 130 tests.
+(Enrichment + import landed since — now **161 tests**; see Phase 4 below.)
 
-**Next — Phase 4 thread 1: LLM enrichment (DECIDED, blocked on a secret).** Scope locked
-(2026-06-25): on save, **inline best-effort** enrichment generating **title + tags +
-summary** (NO cleaned-transcript rewrite — raw `transcript` stays untouched). Model:
-**`claude-haiku-4-5`** via the Anthropic API, server-side, one structured-output call;
-best-effort like audio (a failed call must not fail the save). Schema adds (nullable):
-`summary text`, `enriched_at timestamptz`, `enrichment_model text` (`title`/`tags[]` already
-exist). Also add a manual backfill endpoint to enrich the existing rows.
+**Phase 4 thread 1 (LLM enrichment) is BUILT + deployed (2026-06-25, PR #7).** On save,
+`POST /api/entries` makes one **best-effort** structured-output call to **`claude-haiku-4-5`**
+(`messages.parse()` + a Zod schema) generating **title + tags + summary** — the raw
+`transcript` is untouched. Best-effort like audio: any failure returns `null` and the entry
+still saves (`enrich.ts` catches internally; the route also wraps `getAnthropic()`). Layers:
+`anthropic.ts` (lazy client, build-safe), `enrich.ts` (pure tested `buildEnrichmentPrompt`/
+`normalizeEnrichment` + injectable-client `enrichTranscript`), the 3 nullable cols
+(`summary`/`enriched_at`/`enrichment_model`) threaded through `entry`/`entry-sql` (15 cols, +
+`updateEnrichmentSql`/`listUnenrichedSql`)/`db` (+`updateEntryEnrichment`/`listUnenriched`),
+`POST /api/entries/enrich` backfill (25 rows/call), `EntryList` (title/summary/tag pills).
+**Added `zod`** (CLAUDE.md specified `messages.parse()`+Zod; the no-dep `jsonSchemaOutputFormat`
+risks a `next build` typecheck failure — `json-schema-to-ts` types absent). Haiku is the
+deliberate cost/latency call (one-line swap to `claude-opus-4-8`). Live API verified.
 
-✅ **Key provisioned (2026-06-25):** op item `recountly-anthropic` (field **`credential`**),
-`ANTHROPIC_API_KEY` in Vercel prod env + `.env.tpl` + `.env.local` (op inject done). SDK
-`@anthropic-ai/sdk` is **NOT yet installed** — `pnpm add @anthropic-ai/sdk` first.
+**Phase 4 markdown import is BUILT + run (2026-06-25, PR #8).** `scripts/import-journal.mjs`
+(dry-run by default; `--commit` writes) walks `~/Documents/AudioJournal/transcripts/<year>/*.md`,
+parses `recorded_at` from the `MON_DD_HH.MM` filename (local time — runs on the Mac), extracts
+the transcript (strips `[MM:SS]` markers), and inserts via raw SQL keyed on a deterministic id
+(`imp_<year>_<MON_DD_HH.MM>`, idempotent). Pure parsers in `scripts/journal-parse.mjs` are
+vitest-tested (vitest.config now also globs `scripts/**/*.test.mjs`). **Ran `--commit`: 23 old
+entries imported to prod with transcript + enrichment (entries table now 26 rows).** ⚠️ **All 23
+audio uploads FAILED** — `Vercel Blob: Cannot use private access on a public store` — so the
+imports have NO audio (see issue #10).
 
-**Turnkey build plan (test-first, consult `claude-api` skill — this is a TS project, use
-`@anthropic-ai/sdk`; `claude-haiku-4-5` supports structured outputs via `messages.parse()`
-+ a Zod schema; Haiku takes NO `effort`/`thinking` — just a plain call):**
-1. `pnpm add @anthropic-ai/sdk`.
-2. `src/lib/anthropic.ts` — lazy client singleton reading `ANTHROPIC_API_KEY` (mirror db.ts's
-   lazy-neon pattern; build-safe when env absent).
-3. `src/lib/enrich.ts` (pure + tested, inject the client like db.ts's QueryRunner):
-   `buildEnrichmentPrompt(transcript)`, `normalizeEnrichment(raw)` (trim, ≤5 tags, cap
-   title/summary length, drop empties), `enrichTranscript(transcript, deps)` →
-   `{title, tags, summary, model}` | `null`. Test with a fake client (no live API).
-4. `db/schema.sql` — idempotent `ALTER … ADD COLUMN IF NOT EXISTS` for `summary text`,
-   `enriched_at timestamptz`, `enrichment_model text`; then `pnpm db:migrate` (shared DB).
-5. Thread the 3 fields through `entry.ts` (`EntryRecord` + `buildEntryRecord` via
-   `BuildContext`), `entry-sql.ts` (`COLUMNS`/insert/`rowToEntry` → now 15 cols, +
-   `updateEnrichmentSql`, `listUnenrichedSql`), `db.ts` (`updateEntryEnrichment`,
-   `listUnenriched`). Update entry/entry-sql/db tests (column-count assertions).
-6. `POST /api/entries` — enrich (try/catch, best-effort, never fail the save) →
-   `buildEntryRecord` with enrichment → insert.
-7. `POST /api/entries/enrich` (auth-gated) — enrich up to N rows where `enriched_at IS NULL`,
-   return a count; owner triggers once for the existing rows.
-8. `EntryList.tsx` — render the now-populated title, a one-line summary, tag pills.
-9. test/lint/build → `vercel --prod` → owner triggers backfill + smoke-tests.
-Caveat: `claude-api` skill steers toward Opus; Haiku is the deliberate cost/latency call for
-this simple structured task — one-line swap to `claude-opus-4-8` if title/summary quality
-disappoints.
-
-Deferred: Phase 4 markdown import (`MON_DD_HH.MM` under `AudioJournal/transcripts/`);
-optional drop of the 2 stray `entries` rows in byside's `neon-gray-coin` DB (owner passed).
+**Next Steps:**
+- **Issue #10** — audio blob private-access failure. The store the local `op` blob token points
+  at is public; the app uploads `access:"private"`. Confirm whether `recountly-audio` is public
+  (→ normal prod audio saves are silently failing too) or the local token points at a different
+  store than prod. Fix, then backfill audio for the 23 `imp_*` entries.
+- **Issue #9** — DELETE/CRUD tooling (`DELETE /api/entries/[id]` + blob `del()` + `deleteEntry`
+  + UI button). Needed to clean old test entries and to delete+reimport the 23 once audio works.
+- **Owner verify (PR #7):** trigger the enrichment backfill for pre-import rows
+  (`fetch('/api/entries/enrich',{method:'POST'})` in the browser console while logged in) +
+  smoke-test a fresh recording shows title/summary/tags.
+- Optional: drop the 2 stray `entries` rows in byside's `neon-gray-coin` DB (owner passed).
 
 ⚠️ Gotcha learned the hard way: the OpenAI `client_secrets` mint endpoint does **not**
 validate the transcription model name. A bogus name (we had `gpt-realtime-whisper`) mints
