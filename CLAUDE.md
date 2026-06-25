@@ -106,10 +106,26 @@ in `auth.ts` + `BETTER_AUTH_URL=https://recountly.org` (prod env) keep both orig
 in. ⚠️ `vercel env add` (CLI 54.12.2) stored the value EMPTY via both `printf|` and `<file` —
 set it via the REST API and verify with `?decrypt=true` (see [[vercel-neon-provisioning-traps]]).
 
-**Next:** Phase 4 (roadmap, not yet scoped — discuss before building): LLM enrichment
-(clean transcript, auto title, tags, summary); import old `MON_DD_HH.MM` markdown
-transcripts. Deferred polish: the "audio not fully captured this entry" cue after a pause;
-optional drop of the 2 stray `entries` rows + table in byside's `neon-gray-coin` DB.
+**Partial-audio cue + auth hardening BUILT + deployed (2026-06-24).** (1) A paused-then-
+resumed entry keeps only the last audio segment — now flagged via a nullable
+`audio_complete` column threaded through the stack (`useRecorder` snapshots whether time was
+banked → `audioComplete` on the save payload/route → `EntryList` shows an amber "audio is
+partial — transcript is complete" cue when false; old rows stay null). (2) `auth.ts`:
+30-day rolling session (`updateAge` 1 day) + `rateLimit.storage: "database"` so Better
+Auth's built-in `/sign-in` 3-req/10s throttle holds across Vercel Fluid instances (needs the
+`rateLimit` table — `pnpm db:auth-migrate`; verified it records attempts in prod). 130 tests.
+
+**Next — Phase 4 thread 1: LLM enrichment (DECIDED, blocked on a secret).** Scope locked
+(2026-06-25): on save, **inline best-effort** enrichment generating **title + tags +
+summary** (NO cleaned-transcript rewrite — raw `transcript` stays untouched). Model:
+**`claude-haiku-4-5`** via the Anthropic API, server-side, one structured-output call;
+best-effort like audio (a failed call must not fail the save). Schema adds (nullable):
+`summary text`, `enriched_at timestamptz`, `enrichment_model text` (`title`/`tags[]` already
+exist). Also add a manual backfill endpoint to enrich the existing rows. ⚠️ **BLOCKER:**
+needs `ANTHROPIC_API_KEY` provisioned — op item `recountly-anthropic` + `.env.tpl` + Vercel
+prod env (dashboard paste, per the env-add bug). Consult the `claude-api` skill before
+wiring. Deferred: Phase 4 markdown import (`MON_DD_HH.MM` under `AudioJournal/transcripts/`);
+optional drop of the 2 stray `entries` rows in byside's `neon-gray-coin` DB (owner passed).
 
 ⚠️ Gotcha learned the hard way: the OpenAI `client_secrets` mint endpoint does **not**
 validate the transcription model name. A bogus name (we had `gpt-realtime-whisper`) mints

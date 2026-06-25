@@ -23,3 +23,9 @@ BLOB_READ_WRITE_TOKEN=op://dev-secrets/recountly-blob/BLOB_READ_WRITE_TOKEN
 # own in Vercel env (https://recountly.vercel.app, later recountly.org).
 BETTER_AUTH_SECRET=op://dev-secrets/recountly-better-auth/secret
 BETTER_AUTH_URL=http://localhost:8255
+
+# Anthropic API — Phase 4 LLM enrichment (title/tags/summary on save). Server-only
+# (never reaches the browser); prod reads it from Vercel env. Key from
+# console.anthropic.com. NOTE: create the op item `recountly-anthropic` first
+# (see CLAUDE.md Next) or `op inject` will fail on this line.
+ANTHROPIC_API_KEY=op://dev-secrets/recountly-anthropic/credential
