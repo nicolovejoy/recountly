@@ -10,9 +10,16 @@ OPENAI_API_KEY=op://dev-secrets/openAI-recountly-secret-key/credential
 # Vercel project's env (Neon integration); locally we keep it in op because
 # Vercel marks integration secrets write-only (`vercel env pull` returns them
 # blank). Connection string from console.neon.tech (pooled, host has `-pooler`).
-DATABASE_URL=op://dev-secrets/recountly-neon/credential
+DATABASE_URL=op://dev-secrets/recountly-neon/password
 
 # Vercel Blob — audio storage. Same story: prod from Vercel env, local from op.
 # This item was saved from Vercel, so its field is named BLOB_READ_WRITE_TOKEN
 # (not `credential` like the others).
 BLOB_READ_WRITE_TOKEN=op://dev-secrets/recountly-blob/BLOB_READ_WRITE_TOKEN
+
+# Better Auth — the owner gate. SECRET signs sessions (>=32 chars,
+# `openssl rand -base64 32`); prod reads it from Vercel env. BETTER_AUTH_URL is
+# the app's own base URL (not a secret); local is the dev server, prod sets its
+# own in Vercel env (https://recountly.vercel.app, later recountly.org).
+BETTER_AUTH_SECRET=op://dev-secrets/recountly-better-auth/secret
+BETTER_AUTH_URL=http://localhost:8255

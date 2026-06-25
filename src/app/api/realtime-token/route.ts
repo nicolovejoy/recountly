@@ -20,7 +20,13 @@ const OPENAI_CLIENT_SECRETS_URL = "https://api.openai.com/v1/realtime/client_sec
 // gpt-4o-mini-transcribe, whisper-1.
 const TRANSCRIPTION_MODEL = "gpt-4o-transcribe";
 
+import { getServerSession } from "@/lib/auth-server";
+
 export async function GET() {
+  if (!(await getServerSession())) {
+    return Response.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
     return Response.json(

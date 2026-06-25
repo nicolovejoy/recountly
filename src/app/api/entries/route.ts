@@ -9,8 +9,12 @@ import { ulid } from "@/lib/ulid";
 import { validateEntryInput, buildEntryRecord, type EntryInput } from "@/lib/entry";
 import { uploadAudio, audioProxyPath } from "@/lib/blob";
 import { insertEntry, listEntries } from "@/lib/db";
+import { getServerSession } from "@/lib/auth-server";
 
 export async function GET() {
+  if (!(await getServerSession())) {
+    return Response.json({ error: "Unauthorized" }, { status: 401 });
+  }
   try {
     const entries = await listEntries();
     return Response.json({ entries });
@@ -23,6 +27,10 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  if (!(await getServerSession())) {
+    return Response.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   let form: FormData;
   try {
     form = await request.formData();

@@ -12,11 +12,15 @@
 import { get } from "@vercel/blob";
 import { getEntry } from "@/lib/db";
 import { audioBlobPath } from "@/lib/blob";
+import { getServerSession } from "@/lib/auth-server";
 
 export async function GET(
   _req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  if (!(await getServerSession())) {
+    return new Response("Unauthorized", { status: 401 });
+  }
   const { id } = await params;
 
   let entry;
