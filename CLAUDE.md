@@ -121,10 +121,39 @@ summary** (NO cleaned-transcript rewrite — raw `transcript` stays untouched). 
 **`claude-haiku-4-5`** via the Anthropic API, server-side, one structured-output call;
 best-effort like audio (a failed call must not fail the save). Schema adds (nullable):
 `summary text`, `enriched_at timestamptz`, `enrichment_model text` (`title`/`tags[]` already
-exist). Also add a manual backfill endpoint to enrich the existing rows. ⚠️ **BLOCKER:**
-needs `ANTHROPIC_API_KEY` provisioned — op item `recountly-anthropic` + `.env.tpl` + Vercel
-prod env (dashboard paste, per the env-add bug). Consult the `claude-api` skill before
-wiring. Deferred: Phase 4 markdown import (`MON_DD_HH.MM` under `AudioJournal/transcripts/`);
+exist). Also add a manual backfill endpoint to enrich the existing rows.
+
+✅ **Key provisioned (2026-06-25):** op item `recountly-anthropic` (field **`credential`**),
+`ANTHROPIC_API_KEY` in Vercel prod env + `.env.tpl` + `.env.local` (op inject done). SDK
+`@anthropic-ai/sdk` is **NOT yet installed** — `pnpm add @anthropic-ai/sdk` first.
+
+**Turnkey build plan (test-first, consult `claude-api` skill — this is a TS project, use
+`@anthropic-ai/sdk`; `claude-haiku-4-5` supports structured outputs via `messages.parse()`
++ a Zod schema; Haiku takes NO `effort`/`thinking` — just a plain call):**
+1. `pnpm add @anthropic-ai/sdk`.
+2. `src/lib/anthropic.ts` — lazy client singleton reading `ANTHROPIC_API_KEY` (mirror db.ts's
+   lazy-neon pattern; build-safe when env absent).
+3. `src/lib/enrich.ts` (pure + tested, inject the client like db.ts's QueryRunner):
+   `buildEnrichmentPrompt(transcript)`, `normalizeEnrichment(raw)` (trim, ≤5 tags, cap
+   title/summary length, drop empties), `enrichTranscript(transcript, deps)` →
+   `{title, tags, summary, model}` | `null`. Test with a fake client (no live API).
+4. `db/schema.sql` — idempotent `ALTER … ADD COLUMN IF NOT EXISTS` for `summary text`,
+   `enriched_at timestamptz`, `enrichment_model text`; then `pnpm db:migrate` (shared DB).
+5. Thread the 3 fields through `entry.ts` (`EntryRecord` + `buildEntryRecord` via
+   `BuildContext`), `entry-sql.ts` (`COLUMNS`/insert/`rowToEntry` → now 15 cols, +
+   `updateEnrichmentSql`, `listUnenrichedSql`), `db.ts` (`updateEntryEnrichment`,
+   `listUnenriched`). Update entry/entry-sql/db tests (column-count assertions).
+6. `POST /api/entries` — enrich (try/catch, best-effort, never fail the save) →
+   `buildEntryRecord` with enrichment → insert.
+7. `POST /api/entries/enrich` (auth-gated) — enrich up to N rows where `enriched_at IS NULL`,
+   return a count; owner triggers once for the existing rows.
+8. `EntryList.tsx` — render the now-populated title, a one-line summary, tag pills.
+9. test/lint/build → `vercel --prod` → owner triggers backfill + smoke-tests.
+Caveat: `claude-api` skill steers toward Opus; Haiku is the deliberate cost/latency call for
+this simple structured task — one-line swap to `claude-opus-4-8` if title/summary quality
+disappoints.
+
+Deferred: Phase 4 markdown import (`MON_DD_HH.MM` under `AudioJournal/transcripts/`);
 optional drop of the 2 stray `entries` rows in byside's `neon-gray-coin` DB (owner passed).
 
 ⚠️ Gotcha learned the hard way: the OpenAI `client_secrets` mint endpoint does **not**
