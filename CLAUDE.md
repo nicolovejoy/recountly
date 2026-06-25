@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Project status: Phase 2 complete (live transcription + editable transcript + persistence)
+## Project status: Phase 2 complete + deployed to prod, auth-gated (live transcription + editable transcript + persistence + Better Auth)
 
 Live transcription works end-to-end: speak and words appear via a direct browser→OpenAI
 WebRTC connection (mic meter + in-app error surfacing in place). The transcript is now an
@@ -48,18 +48,53 @@ only the last continuous segment) — audio columns nullable. Layers: pure teste
 real duration into the blob client-side before upload via `fix-webm-duration`
 (`finalizeRecording` in `useRecorder`, WebM only). Verified: playback now spans the full clip.
 
-**Secrets/provisioning (mini):** Neon (`neon-gray-coin`) + Vercel Blob (`recountly-audio`)
-connected to the Vercel project. Vercel marks integration secrets write-only, so
-`vercel env pull` returns `DATABASE_URL`/`BLOB_READ_WRITE_TOKEN` **blank** — local uses
-**op** instead (`op inject`): items `recountly-neon` (field `credential`) + `recountly-blob`
-(field `BLOB_READ_WRITE_TOKEN`); prod stays on Vercel env. Apply schema with `pnpm db:migrate`.
-⚠️ The OpenAI key must belong to an **active** project — an archived-project key mints a
-401 "project archived" (cost a chunk of a session to diagnose).
+**Auth gate is BUILT + prod-verified (2026-06-24).** The app is single-user, gated with
+**Better Auth** (accounts in Neon, matching byside's stack). Email+password, **sign-up
+disabled** (`disableSignUp: true` in `src/lib/auth.ts`) — the owner account is created
+out-of-band by `scripts/seed-user.mjs` (`pnpm seed:user`). To go multi-user later, flip
+`disableSignUp` and add a sign-up form. Layers: `src/lib/auth.ts` (betterAuth over a `pg`
+Pool — not the Neon serverless Pool, which needs ws on Node 20), `auth-client.ts`,
+`auth-server.ts` (`getServerSession`), `src/app/api/auth/[...all]/route.ts` (handler),
+`src/app/login/page.tsx`. **`src/proxy.ts`** is the gate — ⚠️ Next 16 renamed Middleware →
+**Proxy** (`proxy.ts`, not `middleware.ts`); it does an *optimistic* cookie check only
+(`getSessionCookie`, presence not signature), so the **real** enforcement is `getServerSession`
+returning 401 inside the entries/audio/realtime-token routes. `isPublicPath`
+(`src/lib/auth-paths.ts`, unit-tested) allowlists `/login` + `/api/auth/*`.
 
-**Next:** open the PR for `phase-2-persistence` → deploy a preview + verify save/list on
-prod (set `DATABASE_URL`/`BLOB_READ_WRITE_TOKEN`/`OPENAI_API_KEY` are live in Vercel env) →
-Phase 3 (Postgres full-text search over transcripts + date filter). Deferred polish: the
-"audio not fully captured this entry" cue after a pause.
+**Audio blobs are PRIVATE (2026-06-24).** `uploadAudio` uses `access: "private"`; playback
+goes through `GET /api/audio/[id]` (auth-gated) which streams the private blob server-side via
+`@vercel/blob`'s `get()`. `audio_url` stores the same-origin proxy path `/api/audio/<id>`.
+Old pre-2026-06-24 entries kept public direct URLs (disposable test data).
+
+**Secrets/provisioning:** recountly's own Neon store **`recountly-db`** + Vercel Blob
+(`recountly-audio`) connected to the Vercel project. Vercel marks integration secrets
+write-only, so `vercel env pull` returns `DATABASE_URL`/`BLOB_READ_WRITE_TOKEN` **blank** —
+local uses **op** (`op inject`): items `recountly-neon` (field **`password`** — holds
+recountly-db's pooled connection string), `recountly-blob` (field `BLOB_READ_WRITE_TOKEN`),
+`recountly-better-auth` (field `secret`). Prod stays on Vercel env (`BETTER_AUTH_SECRET`,
+`BETTER_AUTH_URL`, `DATABASE_URL`, `BLOB_READ_WRITE_TOKEN`, `OPENAI_API_KEY`). Apply schema
+with `pnpm db:migrate` (entries) + `pnpm db:auth-migrate` (Better Auth tables); seed the
+owner with `pnpm seed:user`. Local + prod share the one `recountly-db`, so one migrate + one
+seed covers both. ⚠️ The OpenAI key must belong to an **active** project — an archived-project
+key mints a 401 "project archived".
+
+⚠️ **The Neon "shared DB" trap (cost a big chunk of 2026-06-24).** recountly was originally
+provisioned (Phase 2) onto **`neon-gray-coin`, which is byside's Neon store** — the Vercel
+Neon integration lists *existing* stores and one got picked instead of creating a new one.
+recountly's `entries` were sitting in byside's DB next to byside's tables; a Better Auth
+migration nearly altered byside's `user`/`session`/`account`/`verification` tables. Fixed by
+creating a dedicated `recountly-db` store (Vercel → Storage → Create Database → Neon →
+**Create New**, turn **Neon Auth OFF**, no per-deployment branch on Production, empty env-var
+prefix so it emits `DATABASE_URL`), disconnecting neon-gray-coin from recountly, repointing
+`DATABASE_URL` (op item + Vercel). Lesson: when provisioning a Vercel-managed Neon DB,
+**create a new store**, don't reuse a listed one; `pnpm db:introspect` shows what's actually
+in there. (byside's DB still has 2 stray recountly `entries` rows — harmless litter.)
+
+**Next:** wire **recountly.org** — add the Cloudflare apex `A @ → 76.76.21.21` (DNS-only),
+then flip `BETTER_AUTH_URL` to `https://recountly.org` in Vercel + redeploy → Phase 3
+(Postgres full-text search over transcripts + date filter). Deferred polish: the "audio not
+fully captured this entry" cue after a pause; optional drop of the stray `entries` rows in
+byside's DB.
 
 ⚠️ Gotcha learned the hard way: the OpenAI `client_secrets` mint endpoint does **not**
 validate the transcription model name. A bogus name (we had `gpt-realtime-whisper`) mints
@@ -67,12 +102,19 @@ a token fine, then `/v1/realtime/calls` hangs ~15s → Cloudflare 504 with no CO
 the browser misreports it as a CORS error. Verified-good models: `gpt-4o-transcribe`,
 `gpt-4o-mini-transcribe`, `whisper-1`.
 
+⚠️ Gotcha: `op read … | vercel env add NAME production` does **not** reliably store the value
+on this CLI version (it printed the secret to the terminal instead) — for prod secrets, use
+the Vercel dashboard "Add Environment Variable" and paste from 1Password. Bit us on both
+`OPENAI_API_KEY` and `BETTER_AUTH_SECRET`.
+
 **Read `recountly-build-prompt.md` in full before starting.** It is the authoritative spec;
 this file is a distilled pointer to its decided constraints. Executed Phase 1/UI design
 docs are archived under `docs/archive/` (historical only — trust `src/` + this file).
 
 ### Stack as built
 - **Next.js 16** (App Router, Turbopack), **React 19**, **TypeScript**, **Tailwind CSS 4**.
+- **Better Auth** (`better-auth`) + **`pg`** for the owner gate; `@neondatabase/serverless`
+  for entry queries; `@vercel/blob` for audio.
 - Source under `src/`, import alias `@/*`. Package manager: **pnpm** (pinned to v9 — pnpm 10+
   requires Node 22.13+, and this machine runs Node 20; do not upgrade pnpm past v9 without
   bumping Node first).
@@ -87,12 +129,17 @@ docs are archived under `docs/archive/` (historical only — trust `src/` + this
 - `pnpm build` — production build
 - `pnpm start` — serve the production build
 - `pnpm lint` — ESLint
-- `pnpm test` — Vitest (node env, pure-logic unit tests; 107 and counting)
-- `pnpm db:migrate` — apply `db/schema.sql` to the `DATABASE_URL` in `.env.local`
+- `pnpm test` — Vitest (node env, pure-logic unit tests; 112 and counting)
+- `pnpm db:migrate` — apply `db/schema.sql` (entries) to `DATABASE_URL` in `.env.local`
+- `pnpm db:auth-migrate` — apply Better Auth's schema (user/session/account/verification)
+- `pnpm seed:user` — create the owner account: `SEED_EMAIL=… SEED_PASSWORD=… pnpm seed:user`
+- `pnpm db:introspect` — read-only: list tables + columns + row counts (DB sanity check)
 - `vercel` — deploy a preview; `vercel --prod` — deploy to production
 - Local secrets: `op inject -i .env.tpl -o .env.local` (1Password) mints the gitignored
-  `.env.local` holding `OPENAI_API_KEY`, `DATABASE_URL` (Neon), and `BLOB_READ_WRITE_TOKEN`
-  (Vercel Blob). `pnpm dev` auto-opens the browser; `pnpm dev:noopen` doesn't.
+  `.env.local` holding `OPENAI_API_KEY`, `DATABASE_URL` (Neon), `BLOB_READ_WRITE_TOKEN`
+  (Vercel Blob), `BETTER_AUTH_SECRET`, and `BETTER_AUTH_URL`. `pnpm dev` auto-opens the
+  browser; `pnpm dev:noopen` doesn't. ⚠️ The app is now gated — at `/` you'll be redirected
+  to `/login`; sign in with the seeded owner account.
 
 ## What recountly is
 

@@ -1,5 +1,50 @@
 # recountly devlog
 
+## 2026-06-24 — Shipped to prod, private audio, and Better Auth gate (+ found/fixed a shared-DB)
+
+Took recountly from "Phase 2 verified locally" to "deployed, owner-gated, isolated DB" over
+2026-06-22 → 06-24.
+
+**Docs + ship (06-22).** Refreshed living docs to Phase 2-complete; archived the executed
+design/plan docs to `docs/archive/`. Opened + merged the `phase-2-persistence` PR, deployed
+prod via `vercel --prod` (the git→Vercel auto-deploy isn't wired — deploys are manual). Found
+the prod `OPENAI_API_KEY` was wrong (upstream 401) — fixed via the Vercel dashboard (the
+`op read | vercel env add` pipe doesn't store reliably on this CLI; it printed the secret).
+
+**Private audio (PR #5, 06-24).** Audio blobs were public-read by URL, so app-gating alone
+wouldn't protect them. Switched `uploadAudio` to `access: "private"`; playback now flows
+through a new auth-gated `GET /api/audio/[id]` that streams the private blob via
+`@vercel/blob`'s `get()`. `audio_url` stores the proxy path `/api/audio/<id>`; old public
+test entries keep their direct URLs.
+
+**Better Auth gate (PR #6, 06-24).** Vercel's free tier can't gate production domains
+(Standard Protection exempts them; "All Deployments" is $150/mo; Password Protection is
+Pro), so we added app-level auth. Chose **Better Auth** (accounts in Neon — matches byside;
+keeps auth in our own DB, multi-user-ready). Email+password, **sign-up disabled**, owner
+account seeded via `scripts/seed-user.mjs`. Gate is `src/proxy.ts` (⚠️ Next 16 renamed
+Middleware → **Proxy**) doing an optimistic cookie check; real enforcement is
+`getServerSession` → 401 in the entries/audio/realtime-token routes. `isPublicPath`
+(unit-tested) allowlists `/login` + `/api/auth/*`. Verified on prod: unauthenticated `/`
+→ 307 `/login`, all `/api/*` → 401; logged-in record→save→play works.
+
+**⚠️ The shared-DB discovery (the big one, 06-24).** The Better Auth migration tried to
+`ALTER` *existing* `user`/`session`/`account`/`verification` tables and failed
+(`emailVerified contains null values`). Introspection showed recountly's `DATABASE_URL`
+pointed at **`neon-gray-coin` — byside's Neon store** (byside tables `listings`/`offers`/…
+right next to recountly's `entries`). recountly was reading/writing byside's database; the
+migration nearly mutated byside's auth schema (the failure saved it — byside's tables were
+left intact). Root cause: the Phase 2 Neon provisioning reused an existing listed store
+instead of creating a new one. Fix: created a dedicated `recountly-db` store (Create New,
+Neon Auth OFF, no per-deploy Production branch, empty env-var prefix), disconnected
+neon-gray-coin from recountly, repointed `DATABASE_URL` (op item `recountly-neon` field
+`password` + Vercel), re-ran `db:migrate` + `db:auth-migrate` + `seed:user` against the clean
+DB. Added `scripts/db-introspect.mjs` as the diagnosis tool. byside's DB still has 2 stray
+recountly `entries` rows (harmless litter, optional drop).
+
+**Tooling added:** `pnpm db:auth-migrate`, `pnpm seed:user`, `pnpm db:introspect`; deps
+`better-auth` + `pg`. 112 vitest tests. **Open:** wire recountly.org (Cloudflare apex A →
+76.76.21.21, DNS-only) then flip `BETTER_AUTH_URL`; then Phase 3 (search).
+
 ## 2026-06-13 — Phase 2 persistence built end-to-end (code-complete; runtime verify pending)
 
 Both gating decisions settled with the owner, then the whole save/list path built
