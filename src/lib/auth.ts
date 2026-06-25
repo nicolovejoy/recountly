@@ -19,4 +19,7 @@ export const auth = betterAuth({
   emailAndPassword: { enabled: true, disableSignUp: true },
   secret: process.env.BETTER_AUTH_SECRET,
   baseURL: process.env.BETTER_AUTH_URL,
+  // Accept auth requests from both origins during/after the recountly.org cutover
+  // so flipping BETTER_AUTH_URL doesn't lock out the vercel.app fallback.
+  trustedOrigins: ["https://recountly.org", "https://recountly.vercel.app"],
 });
