@@ -4,7 +4,7 @@
 // .query). Keeping the SQL and the row→EntryRecord mapping pure means they're
 // testable without a live database; the chosen driver just executes them.
 
-import type { EntryRecord } from "./entry";
+import type { EntryRecord, EntryEnrichment } from "./entry";
 
 export interface SqlQuery {
   text: string;
@@ -12,12 +12,14 @@ export interface SqlQuery {
 }
 
 // Column list shared by reads so SELECT order stays in lockstep with rowToEntry.
+// Enrichment columns (summary, enriched_at, enrichment_model — Phase 4) append
+// at the end; title/tags predate them.
 const COLUMNS =
-  "id, recorded_at, created_at, updated_at, duration_seconds, transcript, title, tags, audio_url, audio_mime, audio_bytes, audio_complete";
+  "id, recorded_at, created_at, updated_at, duration_seconds, transcript, title, tags, audio_url, audio_mime, audio_bytes, audio_complete, summary, enriched_at, enrichment_model";
 
 export function insertEntrySql(rec: EntryRecord): SqlQuery {
   return {
-    text: `INSERT INTO entries (${COLUMNS}) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+    text: `INSERT INTO entries (${COLUMNS}) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
     values: [
       rec.id,
       rec.recordedAt,
@@ -31,6 +33,9 @@ export function insertEntrySql(rec: EntryRecord): SqlQuery {
       rec.audioMime,
       rec.audioBytes,
       rec.audioComplete,
+      rec.summary,
+      rec.enrichedAt,
+      rec.enrichmentModel,
     ],
   };
 }
@@ -91,6 +96,27 @@ export function getEntrySql(id: string): SqlQuery {
   };
 }
 
+// Phase 4 enrichment backfill: write the LLM fields onto an existing row and
+// bump updated_at. Takes the enrichment plus the id and a now-ISO timestamp.
+export function updateEnrichmentSql(
+  id: string,
+  e: EntryEnrichment,
+  nowIso: string,
+): SqlQuery {
+  return {
+    text: `UPDATE entries SET title = $1, tags = $2, summary = $3, enriched_at = $4, enrichment_model = $5, updated_at = $6 WHERE id = $7`,
+    values: [e.title, e.tags, e.summary, nowIso, e.model, nowIso, id],
+  };
+}
+
+// Rows that have never been enriched (newest-first), for the backfill endpoint.
+export function listUnenrichedSql(limit = 50): SqlQuery {
+  return {
+    text: `SELECT ${COLUMNS} FROM entries WHERE enriched_at IS NULL ORDER BY recorded_at DESC LIMIT $1`,
+    values: [limit],
+  };
+}
+
 // A row as returned by the driver: snake_case columns; timestamptz comes back
 // as a Date (node-postgres) or an ISO string (some HTTP drivers) — handle both.
 export type EntryRow = Record<string, unknown>;
@@ -110,6 +136,9 @@ export function rowToEntry(row: EntryRow): EntryRecord {
     transcript: String(row.transcript),
     title: row.title == null ? null : String(row.title),
     tags: Array.isArray(row.tags) ? (row.tags as string[]) : [],
+    summary: row.summary == null ? null : String(row.summary),
+    enrichedAt: row.enriched_at == null ? null : toIso(row.enriched_at),
+    enrichmentModel: row.enrichment_model == null ? null : String(row.enrichment_model),
     audioUrl: row.audio_url == null ? null : String(row.audio_url),
     audioMime: row.audio_mime == null ? null : String(row.audio_mime),
     audioBytes: row.audio_bytes == null ? null : Number(row.audio_bytes),

@@ -1,6 +1,14 @@
 import { describe, it, expect } from "vitest";
-import { insertEntry, listEntries, searchEntries, getEntry, type QueryRunner } from "./db";
-import type { EntryRecord } from "./entry";
+import {
+  insertEntry,
+  listEntries,
+  searchEntries,
+  getEntry,
+  updateEntryEnrichment,
+  listUnenriched,
+  type QueryRunner,
+} from "./db";
+import type { EntryRecord, EntryEnrichment } from "./entry";
 import type { EntryRow } from "./entry-sql";
 
 const rec: EntryRecord = {
@@ -12,9 +20,13 @@ const rec: EntryRecord = {
   transcript: "a walk and a thought",
   title: null,
   tags: [],
+  summary: null,
+  enrichedAt: null,
+  enrichmentModel: null,
   audioUrl: "https://blob.example/x.webm",
   audioMime: "audio/webm",
   audioBytes: 12_345,
+  audioComplete: null,
 };
 
 // Records every query and replays a canned result set — no live DB needed.
@@ -99,5 +111,39 @@ describe("getEntry", () => {
   it("returns null when no row matches", async () => {
     const { runner } = fakeRunner([]);
     expect(await getEntry("nope", runner)).toBeNull();
+  });
+});
+
+describe("updateEntryEnrichment", () => {
+  it("runs a parameterized UPDATE carrying the enrichment + id", async () => {
+    const { runner, calls } = fakeRunner();
+    const enrichment: EntryEnrichment = {
+      title: "Walk",
+      tags: ["walk"],
+      summary: "A walk.",
+      model: "claude-haiku-4-5",
+    };
+    await updateEntryEnrichment("01HX", enrichment, "2026-06-25T12:00:00.000Z", runner);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].text).toMatch(/^UPDATE entries SET/);
+    expect(calls[0].values).toContain("01HX");
+    expect(calls[0].values).toContain("Walk");
+    expect(calls[0].values).toContain("claude-haiku-4-5");
+  });
+});
+
+describe("listUnenriched", () => {
+  it("runs the unenriched SELECT and maps rows", async () => {
+    const { runner, calls } = fakeRunner([sampleRow]);
+    const out = await listUnenriched(5, runner);
+    expect(calls[0].text).toContain("WHERE enriched_at IS NULL");
+    expect(calls[0].values).toEqual([5]);
+    expect(out[0]).toMatchObject({ id: "01HX" });
+  });
+
+  it("defaults the limit to 50", async () => {
+    const { runner, calls } = fakeRunner([]);
+    await listUnenriched(undefined, runner);
+    expect(calls[0].values).toEqual([50]);
   });
 });
