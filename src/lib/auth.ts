@@ -22,4 +22,18 @@ export const auth = betterAuth({
   // Accept auth requests from both origins during/after the recountly.org cutover
   // so flipping BETTER_AUTH_URL doesn't lock out the vercel.app fallback.
   trustedOrigins: ["https://recountly.org", "https://recountly.vercel.app"],
+  // Single trusted owner on a trusted device — keep sessions long and rolling so
+  // re-login is rare. updateAge slides the expiry forward once a day on use.
+  session: {
+    expiresIn: 60 * 60 * 24 * 30, // 30 days
+    updateAge: 60 * 60 * 24, // refresh at most once a day
+  },
+  // Better Auth enables rate limiting in production by default (incl. a built-in
+  // 3-req/10s throttle on /sign-in). The default store is in-memory, which is
+  // per-instance on serverless and resets on cold start — use the database store
+  // so the brute-force limit holds across Vercel Fluid instances. Requires the
+  // `rateLimit` table (created by `pnpm db:auth-migrate`).
+  rateLimit: {
+    storage: "database",
+  },
 });
