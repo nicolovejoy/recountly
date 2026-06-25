@@ -106,5 +106,19 @@ describe("buildEntryRecord", () => {
     expect(rec.audioUrl).toBeNull();
     expect(rec.audioMime).toBeNull();
     expect(rec.audioBytes).toBeNull();
+    expect(rec.audioComplete).toBeNull();
+  });
+
+  it("defaults audioComplete to true when audio is present", () => {
+    const rec = buildEntryRecord(validInput, { id, audioUrl, now });
+    expect(rec.audioComplete).toBe(true);
+  });
+
+  it("marks audio partial when the entry was paused mid-recording", () => {
+    const rec = buildEntryRecord(
+      { ...validInput, audioComplete: false },
+      { id, audioUrl, now },
+    );
+    expect(rec.audioComplete).toBe(false);
   });
 });

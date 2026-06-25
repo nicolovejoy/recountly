@@ -13,11 +13,11 @@ export interface SqlQuery {
 
 // Column list shared by reads so SELECT order stays in lockstep with rowToEntry.
 const COLUMNS =
-  "id, recorded_at, created_at, updated_at, duration_seconds, transcript, title, tags, audio_url, audio_mime, audio_bytes";
+  "id, recorded_at, created_at, updated_at, duration_seconds, transcript, title, tags, audio_url, audio_mime, audio_bytes, audio_complete";
 
 export function insertEntrySql(rec: EntryRecord): SqlQuery {
   return {
-    text: `INSERT INTO entries (${COLUMNS}) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+    text: `INSERT INTO entries (${COLUMNS}) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
     values: [
       rec.id,
       rec.recordedAt,
@@ -30,6 +30,7 @@ export function insertEntrySql(rec: EntryRecord): SqlQuery {
       rec.audioUrl,
       rec.audioMime,
       rec.audioBytes,
+      rec.audioComplete,
     ],
   };
 }
@@ -112,5 +113,6 @@ export function rowToEntry(row: EntryRow): EntryRecord {
     audioUrl: row.audio_url == null ? null : String(row.audio_url),
     audioMime: row.audio_mime == null ? null : String(row.audio_mime),
     audioBytes: row.audio_bytes == null ? null : Number(row.audio_bytes),
+    audioComplete: row.audio_complete == null ? null : Boolean(row.audio_complete),
   };
 }

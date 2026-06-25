@@ -11,6 +11,10 @@ export interface EntryInput {
   // unsupported browser may save no audio. Absent both fields = no audio.
   audioMime?: string;
   audioBytes?: number;
+  // Whether the saved audio covers the WHOLE entry. False when the entry was
+  // paused-then-resumed (best-effort audio keeps only the last segment), so the
+  // UI can warn the audio is partial. Undefined/null when there's no audio.
+  audioComplete?: boolean;
   // When the entry was actually spoken. Defaults to "now" at build time if the
   // client doesn't send it.
   recordedAt?: string;
@@ -29,6 +33,9 @@ export interface EntryRecord {
   audioUrl: string | null;
   audioMime: string | null;
   audioBytes: number | null;
+  // true = audio covers the whole entry; false = partial (paused mid-entry);
+  // null = no audio (or unknown, for pre-Phase-4 rows).
+  audioComplete: boolean | null;
 }
 
 // Returns a list of human-readable problems; empty means valid. A list (rather
@@ -77,5 +84,7 @@ export function buildEntryRecord(input: EntryInput, ctx: BuildContext): EntryRec
     audioUrl: ctx.audioUrl,
     audioMime: input.audioMime ?? null,
     audioBytes: input.audioBytes ?? null,
+    // Only meaningful when audio was saved; null otherwise.
+    audioComplete: ctx.audioUrl ? (input.audioComplete ?? true) : null,
   };
 }

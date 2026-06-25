@@ -36,6 +36,10 @@ export interface RecordingResult {
   durationSeconds: number;
   audioBlob: Blob | null;
   audioMime: string | null;
+  // Whether audioBlob covers the whole entry. false when the entry was paused
+  // mid-recording (each resume starts a fresh recorder, so only the last segment
+  // survives). null when there's no audio.
+  audioComplete: boolean | null;
 }
 
 export interface Recorder {
@@ -424,6 +428,9 @@ export function useRecorder(opts: {
       segmentStartRef.current,
       Date.now(),
     );
+    // Banked time means a pause-resume happened, so the audio recorder was
+    // restarted and only the last segment was captured — flag it partial.
+    const wasPaused = accumulatedMsRef.current > 0;
     // Kick off audio finalization now — finalizeRecording calls recorder.stop()
     // synchronously here, before the mic tracks are cut below, so the tail chunk
     // flushes cleanly. We deliberately do NOT save yet: the last spoken segment's
@@ -447,6 +454,7 @@ export function useRecorder(opts: {
           durationSeconds,
           audioBlob: audio?.blob ?? null,
           audioMime: audio?.mime ?? null,
+          audioComplete: audio?.blob ? !wasPaused : null,
         });
       });
     }, FLUSH_MS);

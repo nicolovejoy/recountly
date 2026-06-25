@@ -20,13 +20,14 @@ const rec: EntryRecord = {
   audioUrl: "https://blob.example/x.webm",
   audioMime: "audio/webm",
   audioBytes: 12_345,
+  audioComplete: true,
 };
 
 describe("insertEntrySql", () => {
-  it("parameterizes all 11 columns in order", () => {
+  it("parameterizes all 12 columns in order", () => {
     const q = insertEntrySql(rec);
     expect(q.text).toMatch(/^INSERT INTO entries \(/);
-    expect(q.text).toContain("VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)");
+    expect(q.text).toContain("VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)");
     expect(q.values).toEqual([
       rec.id,
       rec.recordedAt,
@@ -39,6 +40,7 @@ describe("insertEntrySql", () => {
       rec.audioUrl,
       rec.audioMime,
       rec.audioBytes,
+      rec.audioComplete,
     ]);
   });
 
@@ -132,6 +134,7 @@ describe("rowToEntry", () => {
       audio_url: "https://blob/x.webm",
       audio_mime: "audio/webm",
       audio_bytes: 999,
+      audio_complete: true,
     });
     expect(entry).toEqual({
       id: "01HX",
@@ -145,6 +148,7 @@ describe("rowToEntry", () => {
       audioUrl: "https://blob/x.webm",
       audioMime: "audio/webm",
       audioBytes: 999,
+      audioComplete: true,
     });
   });
 
@@ -186,5 +190,24 @@ describe("rowToEntry", () => {
     expect(entry.audioUrl).toBeNull();
     expect(entry.audioMime).toBeNull();
     expect(entry.audioBytes).toBeNull();
+    expect(entry.audioComplete).toBeNull();
+  });
+
+  it("maps a false audio_complete (partial audio after a pause)", () => {
+    const entry = rowToEntry({
+      id: "01HX",
+      recorded_at: "2026-06-13T01:00:00.000Z",
+      created_at: "2026-06-13T01:00:05.000Z",
+      updated_at: "2026-06-13T01:00:05.000Z",
+      duration_seconds: 10,
+      transcript: "hello",
+      title: null,
+      tags: [],
+      audio_url: "https://blob/x.webm",
+      audio_mime: "audio/webm",
+      audio_bytes: 999,
+      audio_complete: false,
+    });
+    expect(entry.audioComplete).toBe(false);
   });
 });

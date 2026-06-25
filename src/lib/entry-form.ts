@@ -10,8 +10,12 @@ export interface EntrySavePayload {
   durationSeconds: number;
   /** When spoken (ISO). Omitted → server stamps now. */
   recordedAt?: string;
-  /** The captured audio, or null/absent when none was recorded. */
-  audio?: { blob: Blob; mime: string } | null;
+  /**
+   * The captured audio, or null/absent when none was recorded. `complete` is
+   * false when the entry was paused mid-recording (audio is only the last
+   * segment); defaults to true.
+   */
+  audio?: { blob: Blob; mime: string; complete?: boolean } | null;
 }
 
 export function buildEntryFormData(p: EntrySavePayload): FormData {
@@ -21,6 +25,7 @@ export function buildEntryFormData(p: EntrySavePayload): FormData {
   if (p.recordedAt) fd.set("recordedAt", p.recordedAt);
   if (p.audio && p.audio.blob.size > 0) {
     fd.set("audio", p.audio.blob, `audio.${audioExtension(p.audio.mime)}`);
+    fd.set("audioComplete", String(p.audio.complete !== false));
   }
   return fd;
 }

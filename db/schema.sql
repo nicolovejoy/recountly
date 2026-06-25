@@ -14,8 +14,13 @@ CREATE TABLE IF NOT EXISTS entries (
   tags             text[]       NOT NULL DEFAULT '{}',
   audio_url        text,                              -- Vercel Blob reference; null = best-effort audio not saved
   audio_mime       text,
-  audio_bytes      integer
+  audio_bytes      integer,
+  audio_complete   boolean                            -- true = audio covers whole entry; false = partial (paused); null = no audio
 );
+
+-- Backfill the audio_complete column onto pre-existing tables (the CREATE above
+-- is a no-op once the table exists). Nullable; old rows stay null = "unknown".
+ALTER TABLE entries ADD COLUMN IF NOT EXISTS audio_complete boolean;
 
 -- Newest-first entry list (Phase 2) — order by when it was spoken.
 CREATE INDEX IF NOT EXISTS entries_recorded_at_desc ON entries (recorded_at DESC);

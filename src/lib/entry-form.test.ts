@@ -30,6 +30,20 @@ describe("buildEntryFormData", () => {
     expect(file).toBeInstanceOf(File);
     expect((file as File).name).toBe("audio.webm");
     expect((file as File).size).toBe(16);
+    // audioComplete defaults to "true" when not specified
+    expect(fd.get("audioComplete")).toBe("true");
+  });
+
+  it("flags partial audio (paused entry) and omits the flag when no audio", () => {
+    const blob = new Blob([new Uint8Array(16)], { type: "audio/webm" });
+    const partial = buildEntryFormData({
+      transcript: "x",
+      durationSeconds: 1,
+      audio: { blob, mime: "audio/webm", complete: false },
+    });
+    expect(partial.get("audioComplete")).toBe("false");
+    const none = buildEntryFormData({ transcript: "x", durationSeconds: 1, audio: null });
+    expect(none.get("audioComplete")).toBeNull();
   });
 
   it("omits empty or absent audio (best-effort)", () => {

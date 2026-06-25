@@ -55,6 +55,8 @@ export async function POST(request: Request) {
   if (hasAudio) {
     input.audioMime = audio.type || "application/octet-stream";
     input.audioBytes = audio.size;
+    // false only when the client explicitly says so (paused mid-entry).
+    input.audioComplete = form.get("audioComplete") !== "false";
   }
 
   const errors = validateEntryInput(input);

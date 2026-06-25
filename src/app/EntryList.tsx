@@ -131,6 +131,12 @@ export default function EntryList({ reloadKey }: { reloadKey: number }) {
                   <track kind="captions" />
                 </audio>
               )}
+              {e.audioUrl && e.audioComplete === false && (
+                <p className="text-xs text-amber-600">
+                  ⚠ Audio is partial — this entry was paused, so only the last segment was
+                  recorded. The transcript is complete.
+                </p>
+              )}
             </li>
           );
         })}

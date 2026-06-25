@@ -42,7 +42,11 @@ export default function RecorderClient() {
       transcript,
       durationSeconds: result.durationSeconds,
       audio: result.audioBlob
-        ? { blob: result.audioBlob, mime: result.audioMime ?? "audio/webm" }
+        ? {
+            blob: result.audioBlob,
+            mime: result.audioMime ?? "audio/webm",
+            complete: result.audioComplete ?? true,
+          }
         : null,
     });
     fetch("/api/entries", { method: "POST", body })
