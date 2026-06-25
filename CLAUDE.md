@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Project status: Phase 2 complete + deployed to prod, auth-gated (live transcription + editable transcript + persistence + Better Auth)
+## Project status: Phase 3 complete + live on recountly.org, auth-gated (live transcription + editable transcript + persistence + Better Auth + full-text search)
 
 Live transcription works end-to-end: speak and words appear via a direct browser→OpenAI
 WebRTC connection (mic meter + in-app error surfacing in place). The transcript is now an
@@ -18,7 +18,7 @@ Structure (post-refactor, 2026-06-12): pure node-tested logic lives in `src/lib/
 cumulative timer math incl. `bankSegment`, caret planning, `primaryAction`); all
 imperative session state lives in the `useRecorder` hook; `RecorderClient` is a thin
 composition root over presentational `RecordButton`/`RecStatusLine`/`TranscriptEditor`/
-`EventLog` components. 107 vitest tests; new logic is written test-first.
+`EventLog` components. 126 vitest tests; new logic is written test-first.
 
 **Resume-able Pause is BUILT and real-speech verified (2026-06-13, on the mini).** Design:
 close-connection-on-pause / reconnect-on-resume (NOT keep-alive mute); pause cuts the mic
@@ -41,7 +41,7 @@ only the last continuous segment) — audio columns nullable. Layers: pure teste
 `src/lib/` (`db.ts` data-access over the SQL builders w/ injectable runner + lazy neon init;
 `blob.ts` upload; `entry-form.ts` the client↔route FormData contract) → `src/app/api/entries/route.ts`
 → MediaRecorder wired into `useRecorder` (fresh recorder per stream; Done finalizes audio
-**after** the FLUSH_MS window so the transcript tail is included). 107 vitest tests.
+**after** the FLUSH_MS window so the transcript tail is included). 126 vitest tests.
 
 ⚠️ **MediaRecorder WebM has no duration header** — Chrome then can't seek and mis-plays
 (shows ~8s of a 22s clip, tail only; the audio data is all there). Fixed by patching the
@@ -90,11 +90,26 @@ prefix so it emits `DATABASE_URL`), disconnecting neon-gray-coin from recountly,
 **create a new store**, don't reuse a listed one; `pnpm db:introspect` shows what's actually
 in there. (byside's DB still has 2 stray recountly `entries` rows — harmless litter.)
 
-**Next:** wire **recountly.org** — add the Cloudflare apex `A @ → 76.76.21.21` (DNS-only),
-then flip `BETTER_AUTH_URL` to `https://recountly.org` in Vercel + redeploy → Phase 3
-(Postgres full-text search over transcripts + date filter). Deferred polish: the "audio not
-fully captured this entry" cue after a pause; optional drop of the stray `entries` rows in
-byside's DB.
+**Phase 3 (search) is BUILT + deployed (2026-06-24).** Postgres FTS over transcripts:
+a STORED `transcript_tsv` generated column (`to_tsvector('english', title || transcript)`)
++ a GIN index (`db/schema.sql`); queried via `websearch_to_tsquery('english')` and
+relevance-ranked, with an optional inclusive `recorded_at` date range. Pure tested layers:
+`searchEntriesSql` + `SearchFilters` (`entry-sql.ts`), `searchEntries` (`db.ts`),
+`parseSearchFilters`/`buildSearchQueryString` (`src/lib/search.ts`). `GET /api/entries`
+now reads `?q&from&to` (empty == newest-first list). Frontend: `SearchBar` (debounced
+query box + date pickers + Clear) with filter state in `EntryList`; tap a transcript to
+expand it full-length. Verified against the live DB. 126 vitest tests.
+
+**recountly.org is canonical + live (2026-06-24).** Cert was stuck ~2 days; force-issued
+via `vercel certs issue`. `trustedOrigins: ["https://recountly.org","https://recountly.vercel.app"]`
+in `auth.ts` + `BETTER_AUTH_URL=https://recountly.org` (prod env) keep both origins logging
+in. ⚠️ `vercel env add` (CLI 54.12.2) stored the value EMPTY via both `printf|` and `<file` —
+set it via the REST API and verify with `?decrypt=true` (see [[vercel-neon-provisioning-traps]]).
+
+**Next:** Phase 4 (roadmap, not yet scoped — discuss before building): LLM enrichment
+(clean transcript, auto title, tags, summary); import old `MON_DD_HH.MM` markdown
+transcripts. Deferred polish: the "audio not fully captured this entry" cue after a pause;
+optional drop of the 2 stray `entries` rows + table in byside's `neon-gray-coin` DB.
 
 ⚠️ Gotcha learned the hard way: the OpenAI `client_secrets` mint endpoint does **not**
 validate the transcription model name. A bogus name (we had `gpt-realtime-whisper`) mints
@@ -129,7 +144,7 @@ docs are archived under `docs/archive/` (historical only — trust `src/` + this
 - `pnpm build` — production build
 - `pnpm start` — serve the production build
 - `pnpm lint` — ESLint
-- `pnpm test` — Vitest (node env, pure-logic unit tests; 112 and counting)
+- `pnpm test` — Vitest (node env, pure-logic unit tests; 126 and counting)
 - `pnpm db:migrate` — apply `db/schema.sql` (entries) to `DATABASE_URL` in `.env.local`
 - `pnpm db:auth-migrate` — apply Better Auth's schema (user/session/account/verification)
 - `pnpm seed:user` — create the owner account: `SEED_EMAIL=… SEED_PASSWORD=… pnpm seed:user`
