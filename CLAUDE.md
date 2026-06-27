@@ -136,20 +136,38 @@ parses `recorded_at` from the `MON_DD_HH.MM` filename (local time — runs on th
 the transcript (strips `[MM:SS]` markers), and inserts via raw SQL keyed on a deterministic id
 (`imp_<year>_<MON_DD_HH.MM>`, idempotent). Pure parsers in `scripts/journal-parse.mjs` are
 vitest-tested (vitest.config now also globs `scripts/**/*.test.mjs`). **Ran `--commit`: 23 old
-entries imported to prod with transcript + enrichment (entries table now 26 rows).** ⚠️ **All 23
-audio uploads FAILED** — `Vercel Blob: Cannot use private access on a public store` — so the
-imports have NO audio (see issue #10).
+entries imported to prod with transcript + enrichment (entries table now 26 rows).**
 
-**Next Steps:**
-- **Issue #10** — audio blob private-access failure. The store the local `op` blob token points
-  at is public; the app uploads `access:"private"`. Confirm whether `recountly-audio` is public
-  (→ normal prod audio saves are silently failing too) or the local token points at a different
-  store than prod. Fix, then backfill audio for the 23 `imp_*` entries.
+**Issue #10 (audio blob private-access) is RESOLVED + verified (2026-06-27, branch
+`phase4-issue10-audio-backfill`).** Root cause was option 1: the Blob store `recountly-audio`
+was created **public**, but the app uploads `access:"private"`, so EVERY private upload failed
+silently (best-effort) — the 23 imports AND normal prod recordings (queried: 0 audio across all
+26 rows). Blob store access is **fixed at creation, not toggleable** (confirmed in Vercel docs),
+so the fix was a **new private store**: created `recountly-audio-priv` (`store_TRuOEBLTjj2ja7QE`,
+iad1), deleted the old public `recountly-audio` (`store_5BT7nhaetyKHsdF4`, was empty), connected
+the new one with an **empty env-var prefix** so it emits the bare `BLOB_READ_WRITE_TOKEN` (no
+code change). Updated 1Password `recountly-blob` token + re-ran `op inject`; owner redeployed
+prod (`vercel --prod`). Added a `--audio-only` backfill mode to the importer (UPDATEs audio cols
+on existing `imp_*` rows, no delete/reimport, idempotent) — ran it: **all 23 imports now have
+private audio (23/23)**. Verified: private `get()` returns 200/audio/mp4/exact-bytes AND owner
+confirmed prod playback through the gated `/api/audio` proxy. (3 old app-saved rows stay
+audio-less — recorded while the store was public; disposable.)
+
+**Next session — strong auth + PWA (decided, not yet built):**
+- **Passkeys (WebAuthn) primary + email/password as break-glass fallback** (NOT SMS — rejected as
+  weakest 2FA; NOT Sign in with Apple — needs $99 dev program). Better Auth `passkey()` plugin:
+  add to `src/lib/auth.ts` (`rpID: "recountly.org"` + localhost), `passkeyClient()` in
+  `auth-client.ts`, login-page "Sign in with Face ID" + conditional autofill. Adds a `passkey`
+  table → `pnpm db:auth-migrate` (safe — dedicated `recountly-db`). Single-user enrollment: log
+  in w/ password once → "Add this device" → register; keep password enabled. **Verify the current
+  Better Auth passkey API against their docs before coding.**
+- **PWA (do this, not a native wrapper yet):** web manifest + Apple touch icons + `display:
+  standalone` so "Add to Home Screen" gives a full-screen iPhone app. Passkeys + mic recording
+  both work in an iOS Safari PWA (same WebKit/origin). Capacitor wrapper deferred (complicates
+  WebAuthn origin + needs Apple dev program; revisit only for background-audio / App Store). Open
+  Q: passkeys+PWA in one branch or two (passkeys first).
 - **Issue #9** — DELETE/CRUD tooling (`DELETE /api/entries/[id]` + blob `del()` + `deleteEntry`
-  + UI button). Needed to clean old test entries and to delete+reimport the 23 once audio works.
-- **Owner verify (PR #7):** trigger the enrichment backfill for pre-import rows
-  (`fetch('/api/entries/enrich',{method:'POST'})` in the browser console while logged in) +
-  smoke-test a fresh recording shows title/summary/tags.
+  + UI button). Still open; clean old test entries.
 - Optional: drop the 2 stray `entries` rows in byside's `neon-gray-coin` DB (owner passed).
 
 ⚠️ Gotcha learned the hard way: the OpenAI `client_secrets` mint endpoint does **not**
