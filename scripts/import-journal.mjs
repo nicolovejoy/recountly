@@ -10,6 +10,16 @@
 //   node --env-file=.env.local scripts/import-journal.mjs            # dry run
 //   node --env-file=.env.local scripts/import-journal.mjs --commit   # for real
 //
+// --audio-only backfills audio for rows that already exist but never got it
+// (issue #10: the original run uploaded to a public store with access:"private"
+// and every upload failed). For each markdown file whose row exists with a NULL
+// audio_url, it uploads the .m4a to (now private) Blob and UPDATEs only the audio
+// columns — transcript/enrichment are left untouched. Idempotent: rows that
+// already have audio_url are skipped, so re-running is safe.
+//
+//   node --env-file=.env.local scripts/import-journal.mjs --audio-only           # dry run
+//   node --env-file=.env.local scripts/import-journal.mjs --audio-only --commit  # for real
+//
 // JOURNAL_DIR overrides the source (default: ~/Documents/AudioJournal).
 
 import { neon } from "@neondatabase/serverless";
@@ -28,6 +38,7 @@ import {
 } from "./journal-parse.mjs";
 
 const COMMIT = process.argv.includes("--commit");
+const AUDIO_ONLY = process.argv.includes("--audio-only");
 const ROOT = process.env.JOURNAL_DIR || join(homedir(), "Documents", "AudioJournal");
 const M4A_MIME = "audio/mp4"; // .m4a → audio/mp4; audioBlobPath stores it as .mp4
 
@@ -118,7 +129,73 @@ function gatherFiles() {
   return files.sort((a, b) => a.path.localeCompare(b.path));
 }
 
+const UPDATE_AUDIO = `UPDATE entries
+  SET audio_url = $2, audio_mime = $3, audio_bytes = $4, audio_complete = $5, updated_at = $6
+  WHERE id = $1`;
+
+// Issue #10 backfill: upload audio for already-imported rows that have none.
+async function backfillAudio() {
+  console.log(`Source: ${ROOT}`);
+  console.log(COMMIT ? "Mode: AUDIO-ONLY COMMIT (uploading Blob + UPDATE)\n" : "Mode: AUDIO-ONLY DRY RUN (no writes)\n");
+
+  const sql = COMMIT ? neon(process.env.DATABASE_URL) : null;
+  let updated = 0;
+  let skippedNoFile = 0;
+  let skippedNoRow = 0;
+  let skippedHasAudio = 0;
+
+  for (const f of gatherFiles()) {
+    const id = importId(f.year, basename(f.name, ".md"));
+    const md = readFileSync(f.path, "utf8");
+    const { fileName } = parseAudioRef(md);
+    const audioPath = fileName ? join(ROOT, "audio", f.year, fileName) : null;
+    if (!audioPath || !existsSync(audioPath)) {
+      console.log(`SKIP ${id} — no audio file on disk`);
+      skippedNoFile++;
+      continue;
+    }
+
+    if (!COMMIT) {
+      console.log(`WOULD BACKFILL ${id} — ${fileName}`);
+      updated++;
+      continue;
+    }
+
+    const rows = await sql.query("SELECT audio_url FROM entries WHERE id = $1", [id]);
+    if (!rows.length) {
+      console.log(`SKIP ${id} — no such row (run without --audio-only to import)`);
+      skippedNoRow++;
+      continue;
+    }
+    if (rows[0].audio_url) {
+      console.log(`SKIP ${id} — already has audio`);
+      skippedHasAudio++;
+      continue;
+    }
+
+    try {
+      const buf = readFileSync(audioPath);
+      await put(blobPath(id), buf, { access: "private", contentType: M4A_MIME });
+      const now = new Date().toISOString();
+      await sql.query(UPDATE_AUDIO, [id, proxyPath(id), M4A_MIME, buf.length, true, now]);
+      console.log(`BACKFILLED ${id} — ${fileName} (${buf.length} bytes)`);
+      updated++;
+    } catch (err) {
+      console.warn(`  audio backfill FAILED for ${id}:`, String(err).split("\n")[0]);
+    }
+  }
+
+  console.log(
+    `\n${COMMIT ? "Backfilled" : "Would backfill"} ${updated}; skipped ${skippedNoFile} (no file)` +
+      (COMMIT ? `, ${skippedNoRow} (no row), ${skippedHasAudio} (already had audio)` : "") +
+      ".",
+  );
+  if (!COMMIT) console.log("Re-run with --audio-only --commit to write.");
+}
+
 async function main() {
+  if (AUDIO_ONLY) return backfillAudio();
+
   console.log(`Source: ${ROOT}`);
   console.log(COMMIT ? "Mode: COMMIT (writing to DB + Blob + Anthropic)\n" : "Mode: DRY RUN (no writes)\n");
 
