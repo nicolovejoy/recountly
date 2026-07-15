@@ -1,5 +1,91 @@
 # recountly devlog
 
+## 2026-07-14 — Prod was 17 days stale: the Git integration never existed
+
+recountly.org had been serving a bundle from 2026-06-27 for 17 days — missing both the Vercel
+Analytics PR (#12) and the Prompt Lab beacon PR (#13), each merged and each shipping nothing.
+
+**The working hypothesis was wrong, and the way it was wrong is the lesson.** The theory
+arriving into the session was that a GitHub webhook had been removed, breaking the Vercel Git
+integration. The evidence fit: zero deployments after Jun 27, no ERROR-state builds, and
+`gh api repos/:owner/:repo/hooks` returning empty. But `GET /v9/projects/<id>` returned
+**`link: NULL`**, and `vercel ls --environment=preview` returned **nothing across the project's
+entire 43-day history** — not merely nothing since Jun 27. A link that broke on a date leaves
+previews from before that date. There were none, because there was never a link. Every deploy
+this project ever had was a hand-run `vercel --prod`.
+
+**What made it invisible for 17 days:** the Vercel CLI stamps your *local checkout's* git
+metadata (`githubCommitSha`, `githubCommitRef`) onto manual deploys — so the deployment list
+looked exactly like a working Git integration. Nothing broke on Jun 27; the workflow simply
+moved to merging PRs on GitHub, and on an unlinked project merging a PR deploys nothing, ever.
+The gap was just the interval since someone last ran the command.
+
+**It was already written down.** The 2026-06-22 devlog entry below says it plainly: "the
+git→Vercel auto-deploy isn't wired — deploys are manual." The fact was never lost, only
+un-surfaced — it lived here, while `CLAUDE.md` (the file that actually gets read) listed
+`vercel --prod` as *a* command without ever saying it was the *only* path. Fixed by connecting
+the repo (Vercel → Settings → Git) and recording the constraint in `CLAUDE.md` itself.
+
+**Two diagnostics retired as unreliable** (both generalize to every Vercel project):
+`gh api repos/:owner/:repo/hooks` cannot detect a Git link at all — Vercel connects via a
+**GitHub App**, which creates no repo-level webhook; the endpoint returns empty whether linked
+or not (verified empty *after* connecting and confirming auto-deploys). Check `link` on
+`GET /v9/projects/<id>` instead. And `_vercel/insights` is a stale marker for Vercel Analytics
+— `@vercel/analytics` 2.x serves via a randomized anti-adblock path (`/<hash>/script.js`), and
+`<Analytics />` injects client-side on mount, so curl never sees it regardless.
+
+**Verified, not assumed.** Preview auto-created 6s after a push (the first preview in project
+history); merging PR #14 and PR #11 each auto-deployed production, confirmed by matching the
+`dpl_` embedded in the live bundle. Beacon confirmed end-to-end in a real browser → 204 → a row
+in Turso `page_views` — the *only* recountly.org row that has ever existed, meaning anything
+upstream reading beacon data for recountly had been reading a hole, not a zero.
+
+**Merged PR #11** (issue #10 audio backfill, stranded since 06-27) after a rebase. Its
+CLAUDE.md conflict was self-inflicted: this session rewrote the Next Steps region *after*
+noting that #11 rewrites that same region. Resolved by keeping #11's richer content (the
+issue-#10 write-up and the decided passkeys/PWA plan).
+
+**Decided: no `user_id`, ever — recountly's entries are permanently out of Garm's scope.**
+(Garm is the ecosystem-wide `(email, project) → role` grants service.) Single-user is a
+deliberate v1 non-goal, not a gap; a spoken journal is the most private data in the ecosystem
+and binary authenticated-or-not is the correct design. An unfiltered `user_id` would look
+authoritative while enforcing nothing — the same trap as prompt-lab's `project_metadata.private`
+— while a filtered one buys multi-tenancy that doesn't exist. The usual "add it early while
+it's cheap" argument fails because the backfill is unambiguous at any scale (every row, same
+owner, forever), so deferring costs nothing. And the realistic future feature — "share *this
+one entry* with X" — wants a per-entry share token, not row ownership. Recorded in
+`prompt-lab/docs/garm-needs-assessment.md`; recountly joins bakerylouise-v1 as the second of
+seven surveyed repos to be descoped.
+
+## 2026-06-25 → 07-07 — Enrichment, the old-journal import, the audio-store fix, analytics
+
+Backfilled 2026-07-14 from `CLAUDE.md` + PR history; these shipped without their own entries.
+
+**LLM enrichment (PR #7, 06-25).** On save, `POST /api/entries` makes one best-effort
+structured-output call to `claude-haiku-4-5` (`messages.parse()` + a Zod schema) producing
+title + tags + summary. The raw `transcript` is never modified. Best-effort like audio: any
+failure returns `null` and the entry still saves. Haiku is a deliberate cost/latency call —
+a one-line swap to a larger model if quality disappoints.
+
+**Markdown import (PR #8, 06-25).** A one-off importer walked the old
+`AudioJournal/transcripts/<year>/*.md` tree, parsed `recorded_at` from the `MON_DD_HH.MM`
+filenames, and inserted 23 old entries keyed on a deterministic idempotent id. Pure parsers,
+vitest-tested. All 23 audio uploads failed at the time (see below) — transcripts landed, audio
+didn't.
+
+**Issue #10 — every private audio upload was failing silently (PR #11, fixed 06-27, merged
+07-14).** The Blob store `recountly-audio` had been created **public**, but the app uploads
+`access: "private"` — so every upload failed, not just the imports: normal prod recordings too
+(0 audio across all 26 rows). Blob access is fixed at creation and not toggleable, so the fix
+was a new private store, an updated token, and an `--audio-only` importer mode that backfilled
+all 23 (23/23, prod playback verified). The failure was invisible precisely *because* audio is
+best-effort by design — worth remembering that "best-effort" and "silently broken for weeks"
+are the same observation from outside.
+
+**Analytics + beacon (PRs #12 07-06, #13 07-07).** Vercel Web Analytics and the Prompt Lab
+visitor beacon added to the root layout. Both merged — and, unknown at the time, neither
+reached production for another week; see the 07-14 entry above.
+
 ## 2026-06-24 — Shipped to prod, private audio, and Better Auth gate (+ found/fixed a shared-DB)
 
 Took recountly from "Phase 2 verified locally" to "deployed, owner-gated, isolated DB" over

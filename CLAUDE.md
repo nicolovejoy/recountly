@@ -168,6 +168,15 @@ audio-less — recorded while the store was public; disposable.)
   Q: passkeys+PWA in one branch or two (passkeys first).
 - **Issue #9** — DELETE/CRUD tooling (`DELETE /api/entries/[id]` + blob `del()` + `deleteEntry`
   + UI button). Still the main functional gap: you can't delete an entry from the UI.
+- **Physical journal archive** (raised 2026-07-14, owner: "will take some development") —
+  ingest old physical journals: group recordings by a physical journal, attach page images
+  (sometimes), optionally read pages aloud to transcribe. Breaks two current assumptions:
+  entries are flat (no grouping concept exists) and media means audio (one best-effort slot).
+  **Decide first, before any schema work:** voice vs. Claude *vision* for page text — the
+  enrichment path already talks to Anthropic, so a page photo could transcribe directly. Cheap
+  experiment: shoot 2–3 real pages, run them through vision, see if the handwriting reads.
+  Sketch + open questions: `docs/physical-journal-archive.md`. Still single-user — does NOT
+  revive `user_id`.
 - Optional: drop the 2 stray `entries` rows in byside's `neon-gray-coin` DB (owner passed).
 
 **Garm / multi-user: decided NO (2026-07-14).** recountly's `entries` will **not** get a

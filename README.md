@@ -8,22 +8,41 @@ markdown folders). Three core bets: **live transcription**, a **phone-usable UI*
 > Authoritative spec: [`recountly-build-prompt.md`](./recountly-build-prompt.md).
 > Working context for contributors (human or AI): [`CLAUDE.md`](./CLAUDE.md).
 > Running log of decisions and changes: [`devlog.md`](./devlog.md).
+> Ideas not yet designed: [`docs/`](./docs/) (executed design docs are archived under
+> [`docs/archive/`](./docs/archive/)).
 
 ## Status
+
+Live and in daily use at **https://recountly.org** (auth-gated). Phases 0–3 are complete;
+Phase 4 is partly shipped.
 
 - **Phase 1 (live transcription) — complete & verified.** Tap record, speak, see words
   appear via a direct browser→OpenAI WebRTC connection. Editable type-and-talk transcript,
   one circular record/pause/resume control, resume-able pause (close/reopen with a flush
   window so the tail isn't dropped).
-- **Phase 2 (persistence) — complete, deployed, verified on prod.** On Done the client POSTs
-  the transcript + best-effort audio to `/api/entries`; the route uploads audio to Vercel
-  Blob (private) and inserts the entry into Neon. `EntryList` renders past entries
-  newest-first with an audio player (served through an auth-gated proxy). Live on
-  https://recountly.vercel.app.
+- **Phase 2 (persistence) — complete, verified on prod.** On Done the client POSTs the
+  transcript + best-effort audio to `/api/entries`; the route uploads audio to Vercel Blob
+  (private) and inserts the entry into Neon. `EntryList` renders past entries newest-first
+  with an audio player (served through an auth-gated proxy). Audio is best-effort — a
+  paused-then-resumed entry keeps only the last continuous segment and is flagged with an
+  "audio is partial" cue; the transcript is always complete.
+- **Phase 3 (search) — complete.** Postgres full-text search over transcripts (a STORED
+  `transcript_tsv` generated column + GIN index, queried via `websearch_to_tsquery` and
+  relevance-ranked), with an optional inclusive date range. Debounced `SearchBar`; tap a
+  transcript to expand it.
+- **Phase 4 — partly shipped.** *LLM enrichment:* on save, one best-effort structured call to
+  `claude-haiku-4-5` generates title + tags + summary (the raw transcript is never touched);
+  any failure still saves the entry. *Markdown import:* a one-off importer brought 23 old
+  AudioJournal entries in with audio (26 entries total). Still roadmap: cleaned transcripts.
 - **Auth — single-user gate, live.** The whole app is gated with **Better Auth**
   (email+password, sign-up disabled, accounts in Neon); unauthenticated requests are bounced
-  to `/login` and the API returns 401. recountly.org will be wired next.
-- Phase 3 (search) and Phase 4 (LLM enrichment, imports) are roadmap.
+  to `/login` and the API returns 401. Next up: passkeys (WebAuthn) + PWA.
+- **Deploys are automatic** (since 2026-07-14): main auto-deploys to production and every PR
+  gets a preview. Before that the project was never Git-linked and every deploy was a manual
+  `vercel --prod` — which silently left prod 17 days stale. See `CLAUDE.md`.
+
+**Not planned:** multi-user. Single-owner is a deliberate constraint, and `entries` has no
+owner column by design — see the Garm decision in `CLAUDE.md`.
 
 ## Stack
 
@@ -70,14 +89,16 @@ prompt works without https.
 
 ## Structure
 
-- `src/lib/` — pure, node-tested logic (no React/DOM): realtime connection orchestration,
-  event parsing, the recorder state machine, timer math, transcript caret planning, and the
-  Phase 2 persistence core (entry model, sortable ULIDs, parameterized SQL, the `db`/`blob`
-  data-access layers over injectable runners, the audio mime picker, and the client↔route
-  `entry-form` contract).
+- `src/lib/` — pure, node-tested logic (no React/DOM): realtime connection orchestration
+  (`realtime.ts`, `realtime-events.ts`), the recorder state machine (`recorder-state.ts`),
+  timer math (`elapsed.ts`), transcript caret planning (`transcript.ts`), the persistence core
+  (`entry.ts`, `ulid.ts`, `entry-sql.ts`, `db.ts`/`blob.ts` over injectable runners,
+  `audio.ts`, and the client↔route `entry-form.ts` contract), search filter/query building
+  (`search.ts`), and LLM enrichment (`anthropic.ts` lazy client, `enrich.ts` prompt +
+  normalization).
 - `src/app/` — routes, the `useRecorder` hook (all imperative session state), and the
   presentational components `RecorderClient` composes (`RecordButton`, `RecStatusLine`,
-  `TranscriptEditor`, `EventLog`, `EntryList`).
+  `TranscriptEditor`, `EventLog`, `EntryList`, `SearchBar`).
   Plus the auth core: `auth.ts` (Better Auth over a `pg` Pool), `auth-client.ts`,
   `auth-server.ts` (`getServerSession`), and `auth-paths.ts` (the gate's public-path
   allowlist, unit-tested).
@@ -86,12 +107,17 @@ prompt works without https.
   routes via `getServerSession`.
 - `src/app/api/realtime-token/route.ts` — mints ephemeral tokens; the only place
   `OPENAI_API_KEY` lives.
-- `src/app/api/entries/route.ts` — `POST` saves an entry (multipart: transcript + audio),
-  `GET` lists newest-first. `src/app/api/audio/[id]/route.ts` — streams an entry's private
-  audio blob. `src/app/api/auth/[...all]/route.ts` — Better Auth handler.
+- `src/app/api/entries/route.ts` — `POST` saves an entry (multipart: transcript + audio, then
+  one best-effort enrichment call), `GET` lists newest-first or searches (`?q&from&to`).
+  `src/app/api/entries/enrich/route.ts` — backfills enrichment for un-enriched rows.
+  `src/app/api/audio/[id]/route.ts` — streams an entry's private audio blob.
+  `src/app/api/auth/[...all]/route.ts` — Better Auth handler.
 - `src/app/login/page.tsx` — owner sign-in.
-- `db/schema.sql` — the `entries` table (`pnpm db:migrate`); Better Auth owns its own tables
-  (`pnpm db:auth-migrate`).
+- `db/schema.sql` — the `entries` table + the `transcript_tsv` generated column and its GIN
+  index (`pnpm db:migrate`); Better Auth owns its own tables (`pnpm db:auth-migrate`).
+- `scripts/import-journal.mjs` — one-off AudioJournal markdown importer (dry-run by default;
+  `--commit` writes, `--audio-only` backfills audio onto existing rows). Its pure parsers live
+  in `scripts/journal-parse.mjs` and are vitest-tested.
 
 New non-trivial logic is written test-first. CI (`.github/workflows/ci.yml`) runs lint +
 test + build on every push and PR.
