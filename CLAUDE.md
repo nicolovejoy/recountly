@@ -190,7 +190,16 @@ docs are archived under `docs/archive/` (historical only — trust `src/` + this
 - `pnpm db:auth-migrate` — apply Better Auth's schema (user/session/account/verification)
 - `pnpm seed:user` — create the owner account: `SEED_EMAIL=… SEED_PASSWORD=… pnpm seed:user`
 - `pnpm db:introspect` — read-only: list tables + columns + row counts (DB sanity check)
-- `vercel` — deploy a preview; `vercel --prod` — deploy to production
+- `vercel` — deploy a preview; `vercel --prod` — deploy to production (manual escape hatch)
+
+⚠️ **Deploys were manual-only until 2026-07-14** — the Vercel project had never been linked
+to GitHub (`link: NULL`, zero previews in 43 days), so every deploy came from a hand-run
+`vercel --prod` and the CLI stamped local git metadata onto it, which reads misleadingly like
+a Git integration. Merging PRs #12/#13 therefore shipped nothing and prod sat 17 days stale.
+Fixed by connecting the repo (Vercel → Settings → Git); **main now auto-deploys to production
+and every PR gets a preview**. Diagnostic note: Vercel connects via a **GitHub App**, so
+`gh api repos/:owner/:repo/hooks` returns empty whether or not the project is linked — it is
+not evidence either way. Check `link` on `GET /v9/projects/<id>` instead.
 - Local secrets: `op inject -i .env.tpl -o .env.local` (1Password) mints the gitignored
   `.env.local` holding `OPENAI_API_KEY`, `DATABASE_URL` (Neon), `BLOB_READ_WRITE_TOKEN`
   (Vercel Blob), `BETTER_AUTH_SECRET`, and `BETTER_AUTH_URL`. `pnpm dev` auto-opens the
