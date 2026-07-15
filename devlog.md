@@ -1,5 +1,39 @@
 # recountly devlog
 
+## 2026-07-14 — Physical journal archive: voice over vision (decided in shape)
+
+Owner wants to ingest a shelf of old paper journals — group recordings by physical journal,
+photograph pages sometimes, read pages aloud to transcribe.
+
+**The fork was voice vs. LLM vision for page text**, and it was raised twice independently: once
+here, once by a deliberately code-blind agent given only the functional spec (no schema, no
+hint of the current structures, no framing of the question). Both landed on the same fork and
+proposed the same experiment. Convergence from different starting points is decent validation
+that it *was* the question.
+
+**Decided: voice. No vision/OCR.** Rejected on the merits, not feasibility — reading pages aloud
+is the point, not the cost of getting there: *"it's not just about getting it done. I enjoy and
+learn from that part."* (Owner's handwriting would likely defeat OCR anyway, but that's the
+weaker reason.) A vision spike stays an optional curiosity and blocks nothing.
+
+**That decision deleted the hardest part of the design.** Pulling page text into search sounds
+like widening the existing index, but `entries.transcript_tsv` is `GENERATED ALWAYS AS (...)
+STORED`, and Postgres generated columns can only reference columns in the *same row* — they
+can't reach a child `photos` table. OCR text in search would have meant replacing the search
+mechanism (trigger-maintained tsv, a UNION, or denormalizing onto the entry). Voice puts the
+transcript on the entry row, where it's already indexed. Search needs no change at all.
+
+**Plan:** a `journals` table; nullable `entries.journal_id`; nullable `entries.written_at` (when
+the page was written, distinct from `recorded_at` = when read aloud; search on `coalesce`, and
+*not* named `occurred_at` — too close to `recorded_at` to stay unambiguous); a `photos` child
+table; an active-journal lock so capture doesn't re-ask which notebook every page. **Photos are
+not best-effort** — verified upload, private blob, auth-gated proxy. Issue #10 (closed today) is
+exactly why: audio's best-effort design is what let every upload fail silently for weeks, and
+that's survivable for audio (the transcript lives) but not for a page photo, which nothing else
+captures. One open question, defaulted to no: do photo-only entries need to exist? If they do,
+`transcript`/`duration_seconds`/`recorded_at` must loosen — and `duration_seconds` is meaningless
+for a photograph. Full plan: `docs/physical-journal-archive.md`.
+
 ## 2026-07-14 — Prod was 17 days stale: the Git integration never existed
 
 recountly.org had been serving a bundle from 2026-06-27 for 17 days — missing both the Vercel

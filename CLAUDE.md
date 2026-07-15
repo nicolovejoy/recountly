@@ -168,15 +168,19 @@ audio-less — recorded while the store was public; disposable.)
   Q: passkeys+PWA in one branch or two (passkeys first).
 - **Issue #9** — DELETE/CRUD tooling (`DELETE /api/entries/[id]` + blob `del()` + `deleteEntry`
   + UI button). Still the main functional gap: you can't delete an entry from the UI.
-- **Physical journal archive** (raised 2026-07-14, owner: "will take some development") —
-  ingest old physical journals: group recordings by a physical journal, attach page images
-  (sometimes), optionally read pages aloud to transcribe. Breaks two current assumptions:
-  entries are flat (no grouping concept exists) and media means audio (one best-effort slot).
-  **Decide first, before any schema work:** voice vs. Claude *vision* for page text — the
-  enrichment path already talks to Anthropic, so a page photo could transcribe directly. Cheap
-  experiment: shoot 2–3 real pages, run them through vision, see if the handwriting reads.
-  Sketch + open questions: `docs/physical-journal-archive.md`. Still single-user — does NOT
-  revive `user_id`.
+- **Physical journal archive** (decided in shape 2026-07-14, not scheduled) — ingest old paper
+  journals: a `journals` table, nullable `entries.journal_id`, nullable `entries.written_at`
+  (when the page was *written*, vs. existing `recorded_at` = when read aloud; search on
+  `coalesce`), a `photos` child table, and an active-journal lock in the UI. **Search needs no
+  change.** ⚠️ **No LLM vision/OCR** — rejected on the merits, not feasibility: reading pages
+  aloud is the *point* ("I enjoy and learn from that part"), not an ingestion cost. That
+  decision is what keeps this small — `transcript_tsv` is a `GENERATED ALWAYS AS (...) STORED`
+  column and generated columns can't reference a child table, so pulling OCR text into search
+  would mean replacing the search mechanism; voice puts the transcript on the entry row where
+  it's already indexed. **Photos are NOT best-effort** (unlike audio) — verified upload, private
+  blob, auth-gated `/api/photo/[id]`; issue #10 is why. Full plan + the one open question
+  (photo-only entries? default no): `docs/physical-journal-archive.md`. Still single-user — does
+  NOT revive `user_id`.
 - Optional: drop the 2 stray `entries` rows in byside's `neon-gray-coin` DB (owner passed).
 
 **Garm / multi-user: decided NO (2026-07-14).** recountly's `entries` will **not** get a
