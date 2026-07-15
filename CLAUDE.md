@@ -141,16 +141,27 @@ audio uploads FAILED** — `Vercel Blob: Cannot use private access on a public s
 imports have NO audio (see issue #10).
 
 **Next Steps:**
-- **Issue #10** — audio blob private-access failure. The store the local `op` blob token points
-  at is public; the app uploads `access:"private"`. Confirm whether `recountly-audio` is public
-  (→ normal prod audio saves are silently failing too) or the local token points at a different
-  store than prod. Fix, then backfill audio for the 23 `imp_*` entries.
+- **Merge PR #11** (issue #10 audio backfill — `--audio-only` importer mode). The work is done
+  and prod-verified (23/23 audio backfilled 2026-06-27); the branch just sat unmerged. Touches
+  only `CLAUDE.md` + `scripts/import-journal.mjs`, no `src/` — merges clean. ⚠️ It rewrites this
+  Next Steps region with a pre-2026-07-14 view; re-fix after merging. Note Claude Code's auto-mode
+  classifier blocks Claude from merging Claude-authored PRs — owner must run `gh pr merge 11`.
 - **Issue #9** — DELETE/CRUD tooling (`DELETE /api/entries/[id]` + blob `del()` + `deleteEntry`
-  + UI button). Needed to clean old test entries and to delete+reimport the 23 once audio works.
-- **Owner verify (PR #7):** trigger the enrichment backfill for pre-import rows
-  (`fetch('/api/entries/enrich',{method:'POST'})` in the browser console while logged in) +
-  smoke-test a fresh recording shows title/summary/tags.
+  + UI button). Still the main functional gap: you can't delete an entry from the UI.
+- **Passkeys (WebAuthn) + PWA** — the next real thread (flagged 2026-06-27).
 - Optional: drop the 2 stray `entries` rows in byside's `neon-gray-coin` DB (owner passed).
+
+**Garm / multi-user: decided NO (2026-07-14).** recountly's `entries` will **not** get a
+`user_id` column, and the app's entries are permanently out of Garm's (the ecosystem grants
+service) scope. Single-user is a deliberate v1 non-goal, not a gap — a spoken journal is the
+most private data in the ecosystem, and binary authenticated-or-not is correct here. An
+unfiltered `user_id` would look authoritative while enforcing nothing; a filtered one buys
+multi-tenancy that doesn't exist. "Add it early while it's cheap" fails because the backfill is
+unambiguous at any scale (every row, same owner). The realistic future — "share *this one entry*"
+— wants a per-entry share token, not row ownership. Garm can still carry `recountly` as a
+*project* (dashboard metadata) with zero changes here. Full reasoning:
+`~/src/prompt-lab/docs/garm-needs-assessment.md`. Revisit only if a real second person needs to
+write entries.
 
 ⚠️ Gotcha learned the hard way: the OpenAI `client_secrets` mint endpoint does **not**
 validate the transcription model name. A bogus name (we had `gpt-realtime-whisper`) mints
