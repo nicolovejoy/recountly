@@ -13,13 +13,14 @@ export interface SqlQuery {
 
 // Column list shared by reads so SELECT order stays in lockstep with rowToEntry.
 // Enrichment columns (summary, enriched_at, enrichment_model — Phase 4) append
-// at the end; title/tags predate them.
+// at the end; title/tags predate them. journal_id/written_at (physical-journal
+// archive) append after those.
 const COLUMNS =
-  "id, recorded_at, created_at, updated_at, duration_seconds, transcript, title, tags, audio_url, audio_mime, audio_bytes, audio_complete, summary, enriched_at, enrichment_model";
+  "id, recorded_at, created_at, updated_at, duration_seconds, transcript, title, tags, audio_url, audio_mime, audio_bytes, audio_complete, summary, enriched_at, enrichment_model, journal_id, written_at";
 
 export function insertEntrySql(rec: EntryRecord): SqlQuery {
   return {
-    text: `INSERT INTO entries (${COLUMNS}) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+    text: `INSERT INTO entries (${COLUMNS}) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
     values: [
       rec.id,
       rec.recordedAt,
@@ -36,14 +37,18 @@ export function insertEntrySql(rec: EntryRecord): SqlQuery {
       rec.summary,
       rec.enrichedAt,
       rec.enrichmentModel,
+      rec.journalId,
+      rec.writtenAt,
     ],
   };
 }
 
-// Newest-first list for the entry index (Phase 2).
+// Newest-first list for the entry index (Phase 2). Uses the effective date
+// (coalesce(written_at, recorded_at)) so archived journal pages sort by when
+// they were written, not when they were transcribed in.
 export function listEntriesSql(limit = 50): SqlQuery {
   return {
-    text: `SELECT ${COLUMNS} FROM entries ORDER BY recorded_at DESC LIMIT $1`,
+    text: `SELECT ${COLUMNS} FROM entries ORDER BY coalesce(written_at, recorded_at) DESC LIMIT $1`,
     values: [limit],
   };
 }
@@ -53,12 +58,14 @@ export function listEntriesSql(limit = 50): SqlQuery {
 // to the same newest-first list as listEntriesSql.
 export interface SearchFilters {
   query?: string; // free text; matched via websearch_to_tsquery
-  from?: string; // YYYY-MM-DD, inclusive lower bound on recorded_at
+  journalId?: string; // exact match on entries.journal_id
+  from?: string; // YYYY-MM-DD, inclusive lower bound on the effective date
   to?: string; // YYYY-MM-DD, inclusive — covers the whole day
   limit?: number;
 }
 
 export function searchEntriesSql(f: SearchFilters = {}): SqlQuery {
+  const EFFECTIVE_AT = "coalesce(written_at, recorded_at)";
   const where: string[] = [];
   const values: unknown[] = [];
   let p = 0;
@@ -75,13 +82,14 @@ export function searchEntriesSql(f: SearchFilters = {}): SqlQuery {
     where.push(`transcript_tsv @@ websearch_to_tsquery('english', ${ph})`);
     rankExpr = `ts_rank(transcript_tsv, websearch_to_tsquery('english', ${ph}))`;
   }
-  if (f.from) where.push(`recorded_at >= ${next(f.from)}::date`);
-  if (f.to) where.push(`recorded_at < (${next(f.to)}::date + 1)`);
+  if (f.journalId) where.push(`journal_id = ${next(f.journalId)}`);
+  if (f.from) where.push(`${EFFECTIVE_AT} >= ${next(f.from)}::date`);
+  if (f.to) where.push(`${EFFECTIVE_AT} < (${next(f.to)}::date + 1)`);
 
   const whereSql = where.length ? ` WHERE ${where.join(" AND ")}` : "";
   const orderSql = rankExpr
-    ? ` ORDER BY ${rankExpr} DESC, recorded_at DESC`
-    : ` ORDER BY recorded_at DESC`;
+    ? ` ORDER BY ${rankExpr} DESC, ${EFFECTIVE_AT} DESC`
+    : ` ORDER BY ${EFFECTIVE_AT} DESC`;
   const limitPh = next(f.limit ?? 50);
   return {
     text: `SELECT ${COLUMNS} FROM entries${whereSql}${orderSql} LIMIT ${limitPh}`,
@@ -121,7 +129,7 @@ export function listUnenrichedSql(limit = 50): SqlQuery {
 // as a Date (node-postgres) or an ISO string (some HTTP drivers) — handle both.
 export type EntryRow = Record<string, unknown>;
 
-function toIso(v: unknown): string {
+export function toIso(v: unknown): string {
   if (v instanceof Date) return v.toISOString();
   return String(v);
 }
@@ -143,5 +151,7 @@ export function rowToEntry(row: EntryRow): EntryRecord {
     audioMime: row.audio_mime == null ? null : String(row.audio_mime),
     audioBytes: row.audio_bytes == null ? null : Number(row.audio_bytes),
     audioComplete: row.audio_complete == null ? null : Boolean(row.audio_complete),
+    journalId: row.journal_id == null ? null : String(row.journal_id),
+    writtenAt: row.written_at == null ? null : toIso(row.written_at),
   };
 }

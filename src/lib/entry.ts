@@ -18,6 +18,11 @@ export interface EntryInput {
   // When the entry was actually spoken. Defaults to "now" at build time if the
   // client doesn't send it.
   recordedAt?: string;
+  // Physical-journal archive: the notebook this reading belongs to (absent for
+  // a normal spoken entry), and when the page was originally *written* — as
+  // distinct from recordedAt, which for a legacy page is when it was read aloud.
+  journalId?: string;
+  writtenAt?: string;
 }
 
 // LLM-generated enrichment (Phase 4 thread 1). Produced best-effort on save by
@@ -34,6 +39,11 @@ export interface EntryEnrichment {
 export interface EntryRecord {
   id: string;
   recordedAt: string; // ISO timestamptz
+  // Null for a normal spoken entry; set when the entry is a journal reading.
+  journalId: string | null;
+  // When the page was written (vs recordedAt = when read aloud). Sorting and
+  // date search use coalesce(written_at, recorded_at).
+  writtenAt: string | null;
   createdAt: string;
   updatedAt: string;
   durationSeconds: number;
@@ -75,6 +85,12 @@ export function validateEntryInput(input: EntryInput): string[] {
       errors.push("audioMime is required");
     }
   }
+  if (input.journalId != null && (typeof input.journalId !== "string" || input.journalId.trim().length === 0)) {
+    errors.push("journalId must be a non-empty string");
+  }
+  if (input.writtenAt != null && Number.isNaN(Date.parse(input.writtenAt))) {
+    errors.push("writtenAt must be a valid date");
+  }
   return errors;
 }
 
@@ -98,6 +114,8 @@ export function buildEntryRecord(input: EntryInput, ctx: BuildContext): EntryRec
   return {
     id: ctx.id,
     recordedAt: input.recordedAt ?? nowIso,
+    journalId: input.journalId ?? null,
+    writtenAt: input.writtenAt ?? null,
     createdAt: nowIso,
     updatedAt: nowIso,
     durationSeconds: input.durationSeconds,

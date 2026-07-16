@@ -15,6 +15,8 @@ export function parseSearchFilters(params: URLSearchParams): SearchFilters {
   if (from) out.from = from;
   const to = params.get("to")?.trim();
   if (to) out.to = to;
+  const journal = params.get("journal")?.trim();
+  if (journal) out.journalId = journal;
   return out;
 }
 
@@ -25,6 +27,7 @@ export function buildSearchQueryString(f: SearchFilters): string {
   if (q) params.set("q", q);
   if (f.from) params.set("from", f.from);
   if (f.to) params.set("to", f.to);
+  if (f.journalId) params.set("journal", f.journalId);
   const s = params.toString();
   return s ? `?${s}` : "";
 }

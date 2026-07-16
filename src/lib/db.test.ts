@@ -27,6 +27,8 @@ const rec: EntryRecord = {
   audioMime: "audio/webm",
   audioBytes: 12_345,
   audioComplete: null,
+  journalId: null,
+  writtenAt: null,
 };
 
 // Records every query and replays a canned result set — no live DB needed.
@@ -71,7 +73,7 @@ describe("listEntries", () => {
   it("runs the newest-first SELECT and maps rows to EntryRecords", async () => {
     const { runner, calls } = fakeRunner([sampleRow]);
     const out = await listEntries(10, runner);
-    expect(calls[0].text).toContain("ORDER BY recorded_at DESC");
+    expect(calls[0].text).toContain("ORDER BY coalesce(written_at, recorded_at) DESC");
     expect(calls[0].values).toEqual([10]);
     expect(out).toHaveLength(1);
     expect(out[0]).toMatchObject({ id: "01HX", transcript: "hello", tags: ["a"] });
@@ -96,7 +98,7 @@ describe("searchEntries", () => {
   it("with no filters falls back to the newest-first list", async () => {
     const { runner, calls } = fakeRunner([]);
     await searchEntries({}, runner);
-    expect(calls[0].text).toContain("ORDER BY recorded_at DESC");
+    expect(calls[0].text).toContain("ORDER BY coalesce(written_at, recorded_at) DESC");
     expect(calls[0].values).toEqual([50]);
   });
 });

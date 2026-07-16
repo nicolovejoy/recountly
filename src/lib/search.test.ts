@@ -35,3 +35,18 @@ describe("buildSearchQueryString", () => {
     expect(buildSearchQueryString({ query: "a & b" })).toContain("q=a+%26+b");
   });
 });
+
+describe("journal filter param", () => {
+  it("parses ?journal= into journalId, dropping blanks", () => {
+    expect(parseSearchFilters(new URLSearchParams("journal=01JRNL"))).toEqual({
+      journalId: "01JRNL",
+    });
+    expect(parseSearchFilters(new URLSearchParams("journal=%20%20"))).toEqual({});
+  });
+
+  it("round-trips journalId through buildSearchQueryString", () => {
+    expect(buildSearchQueryString({ journalId: "01JRNL", query: "cabin" })).toBe(
+      "?q=cabin&journal=01JRNL",
+    );
+  });
+});

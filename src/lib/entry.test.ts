@@ -156,3 +156,42 @@ describe("buildEntryRecord", () => {
     expect(rec.audioComplete).toBe(false);
   });
 });
+
+describe("journal archive fields (Phase: physical journals)", () => {
+  it("accepts journalId + writtenAt and carries them onto the record", () => {
+    const input = {
+      transcript: "read from the red notebook",
+      durationSeconds: 30,
+      journalId: "01JRNL",
+      writtenAt: "1994-03-02T00:00:00.000Z",
+    };
+    expect(validateEntryInput(input)).toEqual([]);
+    const rec = buildEntryRecord(input, {
+      id: "01HX",
+      audioUrl: null,
+      now: new Date("2026-07-16T10:00:00Z"),
+    });
+    expect(rec.journalId).toBe("01JRNL");
+    expect(rec.writtenAt).toBe("1994-03-02T00:00:00.000Z");
+  });
+
+  it("defaults journalId and writtenAt to null for a normal spoken entry", () => {
+    const rec = buildEntryRecord(
+      { transcript: "hi", durationSeconds: 1 },
+      { id: "01HX", audioUrl: null, now: new Date("2026-07-16T10:00:00Z") },
+    );
+    expect(rec.journalId).toBeNull();
+    expect(rec.writtenAt).toBeNull();
+  });
+
+  it("rejects a blank journalId and an unparseable writtenAt", () => {
+    const errors = validateEntryInput({
+      transcript: "hi",
+      durationSeconds: 1,
+      journalId: "  ",
+      writtenAt: "not-a-date",
+    });
+    expect(errors).toContain("journalId must be a non-empty string");
+    expect(errors).toContain("writtenAt must be a valid date");
+  });
+});
