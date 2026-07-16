@@ -56,3 +56,38 @@ describe("buildEntryFormData", () => {
     ).toBeNull();
   });
 });
+
+describe("journal archive fields", () => {
+  it("carries journalId and writtenAt when present", () => {
+    const fd = buildEntryFormData({
+      transcript: "read aloud",
+      durationSeconds: 30,
+      journalId: "01JRNL",
+      writtenAt: "1994-03-02T00:00:00.000Z",
+    });
+    expect(fd.get("journalId")).toBe("01JRNL");
+    expect(fd.get("writtenAt")).toBe("1994-03-02T00:00:00.000Z");
+  });
+
+  it("omits journal fields for a normal spoken entry", () => {
+    const fd = buildEntryFormData({ transcript: "hi", durationSeconds: 1 });
+    expect(fd.get("journalId")).toBeNull();
+    expect(fd.get("writtenAt")).toBeNull();
+  });
+
+  it("appends each photo under the repeated 'photo' field, skipping empties", () => {
+    const jpeg = new Blob([new Uint8Array([1, 2, 3])], { type: "image/jpeg" });
+    const empty = new Blob([], { type: "image/png" });
+    const fd = buildEntryFormData({
+      transcript: "page one",
+      durationSeconds: 10,
+      photos: [
+        { blob: jpeg, mime: "image/jpeg" },
+        { blob: empty, mime: "image/png" },
+      ],
+    });
+    const photos = fd.getAll("photo");
+    expect(photos).toHaveLength(1);
+    expect((photos[0] as File).name).toBe("photo.jpg");
+  });
+});

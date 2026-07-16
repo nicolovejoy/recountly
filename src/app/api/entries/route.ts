@@ -13,7 +13,8 @@ import {
   type EntryEnrichment,
 } from "@/lib/entry";
 import { uploadAudio, audioProxyPath } from "@/lib/blob";
-import { insertEntry, searchEntries } from "@/lib/db";
+import { uploadPhoto, photoProxyPath, type PhotoRecord } from "@/lib/photo";
+import { insertEntry, insertPhoto, searchEntries } from "@/lib/db";
 import { enrichTranscript } from "@/lib/enrich";
 import { getAnthropic } from "@/lib/anthropic";
 import { parseSearchFilters } from "@/lib/search";
@@ -54,6 +55,10 @@ export async function POST(request: Request) {
   };
   const recordedAt = form.get("recordedAt");
   if (typeof recordedAt === "string" && recordedAt) input.recordedAt = recordedAt;
+  const journalId = form.get("journalId");
+  if (typeof journalId === "string" && journalId) input.journalId = journalId;
+  const writtenAt = form.get("writtenAt");
+  if (typeof writtenAt === "string" && writtenAt) input.writtenAt = writtenAt;
 
   // Best-effort audio: a File part may be absent (paused entry, unsupported
   // browser) or empty. Only treat a non-empty file as audio.
@@ -66,7 +71,23 @@ export async function POST(request: Request) {
     input.audioComplete = form.get("audioComplete") !== "false";
   }
 
-  const errors = validateEntryInput(input);
+  // Page photos are NOT best-effort (unlike audio): any problem here fails the
+  // save loudly so the owner can re-shoot the page now — issue #10 is why.
+  const MAX_PHOTO_BYTES = 8 * 1024 * 1024;
+  const photoFiles = form
+    .getAll("photo")
+    .filter((p): p is File => p instanceof File && p.size > 0);
+  const photoProblems: string[] = [];
+  for (const f of photoFiles) {
+    if (!f.type.startsWith("image/")) {
+      photoProblems.push(`photo ${f.name} is not an image (${f.type || "unknown type"})`);
+    }
+    if (f.size > MAX_PHOTO_BYTES) {
+      photoProblems.push(`photo ${f.name} exceeds ${MAX_PHOTO_BYTES} bytes`);
+    }
+  }
+
+  const errors = [...validateEntryInput(input), ...photoProblems];
   if (errors.length) {
     return Response.json({ error: "Invalid entry", problems: errors }, { status: 400 });
   }
@@ -88,6 +109,27 @@ export async function POST(request: Request) {
       input.audioMime = undefined;
       input.audioBytes = undefined;
     }
+  }
+
+  const photoRecords: PhotoRecord[] = [];
+  for (const f of photoFiles) {
+    const photoId = ulid();
+    try {
+      await uploadPhoto(photoId, f, f.type, f.size);
+    } catch (err) {
+      // NOT best-effort: the entry is not saved, the client must retry.
+      return Response.json(
+        { error: "Photo upload failed — entry NOT saved. Keep the page handy and retry.", detail: String(err) },
+        { status: 502 },
+      );
+    }
+    photoRecords.push({
+      id: photoId,
+      entryId: id,
+      mime: f.type,
+      bytes: f.size,
+      createdAt: new Date().toISOString(),
+    });
   }
 
   // Best-effort LLM enrichment (Phase 4): one structured call generates a
@@ -112,5 +154,22 @@ export async function POST(request: Request) {
     );
   }
 
-  return Response.json({ entry: record }, { status: 201 });
+  try {
+    for (const p of photoRecords) await insertPhoto(p);
+  } catch (err) {
+    // The entry row saved but a photo record didn't — surface it loudly rather
+    // than pretend the save was clean; the blob exists, the row can be re-added.
+    return Response.json(
+      { error: "Entry saved but recording a photo failed", detail: String(err), entry: record },
+      { status: 500 },
+    );
+  }
+
+  return Response.json(
+    {
+      entry: record,
+      photos: photoRecords.map((p) => ({ id: p.id, url: photoProxyPath(p.id) })),
+    },
+    { status: 201 },
+  );
 }
