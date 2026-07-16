@@ -9,11 +9,15 @@ import {
   insertJournal,
   listJournals,
   setActiveJournal,
+  insertPhoto,
+  listPhotosByEntry,
+  getPhoto,
   type QueryRunner,
 } from "./db";
 import type { EntryRecord, EntryEnrichment } from "./entry";
 import type { EntryRow } from "./entry-sql";
 import type { JournalRecord } from "./journal";
+import type { PhotoRecord } from "./photo";
 
 const rec: EntryRecord = {
   id: "01HXAMPLE0000000000000000",
@@ -184,5 +188,39 @@ describe("journal data access", () => {
     const { runner, calls } = fakeRunner();
     await setActiveJournal("01JRNL", runner);
     expect(calls[0].text).toBe("UPDATE journals SET active = (id = $1)");
+  });
+});
+
+describe("photo data access", () => {
+  const p: PhotoRecord = {
+    id: "01PHOTO",
+    entryId: "01ENTRY",
+    mime: "image/jpeg",
+    bytes: 5,
+    createdAt: "2026-07-16T10:00:00.000Z",
+  };
+  const row = {
+    id: "01PHOTO",
+    entry_id: "01ENTRY",
+    mime: "image/jpeg",
+    bytes: 5,
+    created_at: "2026-07-16T10:00:00.000Z",
+  };
+
+  it("insertPhoto runs the parameterized INSERT", async () => {
+    const { runner, calls } = fakeRunner();
+    await insertPhoto(p, runner);
+    expect(calls[0].text).toContain("INSERT INTO photos");
+    expect(calls[0].values[0]).toBe("01PHOTO");
+  });
+
+  it("listPhotosByEntry maps rows", async () => {
+    const { runner } = fakeRunner([row]);
+    expect(await listPhotosByEntry("01ENTRY", runner)).toEqual([p]);
+  });
+
+  it("getPhoto returns null when absent", async () => {
+    const { runner } = fakeRunner([]);
+    expect(await getPhoto("01PHOTO", runner)).toBeNull();
   });
 });
