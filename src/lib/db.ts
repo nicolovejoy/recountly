@@ -16,6 +16,13 @@ import {
   type SearchFilters,
 } from "./entry-sql";
 import type { EntryRecord, EntryEnrichment } from "./entry";
+import {
+  insertJournalSql,
+  listJournalsSql,
+  setActiveJournalSql,
+  rowToJournal,
+  type JournalRecord,
+} from "./journal";
 
 // The one capability we need from the driver: run a parameterized query and get
 // rows back. neon()'s `sql.query(text, params)` returns rows-by-default, which
@@ -93,4 +100,30 @@ export async function listUnenriched(
   const { text, values } = listUnenrichedSql(limit);
   const rows = await runner.query(text, values);
   return rows.map(rowToEntry);
+}
+
+// Journals (physical-journal archive).
+export async function insertJournal(
+  j: JournalRecord,
+  runner: QueryRunner = defaultRunner(),
+): Promise<JournalRecord> {
+  const { text, values } = insertJournalSql(j);
+  await runner.query(text, values);
+  return j;
+}
+
+export async function listJournals(
+  runner: QueryRunner = defaultRunner(),
+): Promise<JournalRecord[]> {
+  const { text, values } = listJournalsSql();
+  const rows = await runner.query(text, values);
+  return rows.map(rowToJournal);
+}
+
+export async function setActiveJournal(
+  id: string | null,
+  runner: QueryRunner = defaultRunner(),
+): Promise<void> {
+  const { text, values } = setActiveJournalSql(id);
+  await runner.query(text, values);
 }

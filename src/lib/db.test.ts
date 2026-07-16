@@ -6,10 +6,14 @@ import {
   getEntry,
   updateEntryEnrichment,
   listUnenriched,
+  insertJournal,
+  listJournals,
+  setActiveJournal,
   type QueryRunner,
 } from "./db";
 import type { EntryRecord, EntryEnrichment } from "./entry";
 import type { EntryRow } from "./entry-sql";
+import type { JournalRecord } from "./journal";
 
 const rec: EntryRecord = {
   id: "01HXAMPLE0000000000000000",
@@ -147,5 +151,38 @@ describe("listUnenriched", () => {
     const { runner, calls } = fakeRunner([]);
     await listUnenriched(undefined, runner);
     expect(calls[0].values).toEqual([50]);
+  });
+});
+
+describe("journal data access", () => {
+  const j: JournalRecord = {
+    id: "01JRNL",
+    label: "Red notebook 1994",
+    notes: null,
+    active: false,
+    createdAt: "2026-07-16T10:00:00.000Z",
+  };
+
+  it("insertJournal runs the parameterized INSERT", async () => {
+    const { runner, calls } = fakeRunner();
+    await insertJournal(j, runner);
+    expect(calls[0].text).toContain("INSERT INTO journals");
+    expect(calls[0].values[0]).toBe("01JRNL");
+  });
+
+  it("listJournals maps rows to JournalRecords", async () => {
+    const { runner } = fakeRunner([
+      { id: "01JRNL", label: "Red", notes: null, active: true, created_at: "2026-07-16T10:00:00.000Z" },
+    ]);
+    const out = await listJournals(runner);
+    expect(out).toEqual([
+      { id: "01JRNL", label: "Red", notes: null, active: true, createdAt: "2026-07-16T10:00:00.000Z" },
+    ]);
+  });
+
+  it("setActiveJournal runs the single-statement toggle", async () => {
+    const { runner, calls } = fakeRunner();
+    await setActiveJournal("01JRNL", runner);
+    expect(calls[0].text).toBe("UPDATE journals SET active = (id = $1)");
   });
 });
