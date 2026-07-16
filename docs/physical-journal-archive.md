@@ -59,17 +59,22 @@ photo is not — nothing else captures that artifact, and re-shooting means find
 again. Same reason photos stream through an auth-gated proxy (`/api/photo/[id]`, mirroring
 `/api/audio/[id]`) over a **private** blob store — never a public blob URL.
 
-## Open question (only one)
+## Photo-only entries: RESOLVED — no (owner, 2026-07-16)
 
-**Do photo-only entries need to exist** — a page photographed but not read? If no, the schema
-change stays tiny: `journal_id`, `written_at`, `photos`, done. If yes, three NOT NULLs have to
-loosen: `transcript`, `duration_seconds`, `recorded_at` — and `duration_seconds` has no meaning
-for a photograph (what's the duration of a page?), so it'd need to go nullable or take a
-sentinel.
+**Do photo-only entries need to exist** — a page photographed but not read? **No.** The case
+that raised the question was drawings: some journal pages are images, not words. The owner's
+own answer: speak a few words describing the drawing, and that spoken description *is* the
+entry's transcript. This is not a workaround — it's the design working as intended:
 
-**Default: no.** If reading aloud is the point, every entry has a reading, so every entry has a
-transcript and a duration, and photos attach to those entries. Loosen later if the habit
-actually wants it — consistent with not building speculative structure.
+- The schema stays tiny. `transcript`, `duration_seconds`, `recorded_at` keep their NOT NULLs;
+  no sentinel duration for a photograph.
+- It's the only thing that makes drawings **searchable** — `transcript_tsv` is generated from
+  the entry row and can never reach the `photos` table, so an undescribed photo would be
+  invisible to search forever. A ten-second spoken caption buys retrieval.
+- It's consistent with voice-is-the-point: a spoken description is the owner annotating his own
+  drawing, the same act as reading a page aloud.
+
+Loosen later only if the habit genuinely wants captionless photos — not speculatively.
 
 ## Constraints
 
