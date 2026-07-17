@@ -11,7 +11,7 @@ const tables = await pool.query(
 );
 console.log("PUBLIC TABLES:", tables.rows.map((r) => r.table_name).join(", "));
 
-for (const t of ["user", "session", "account", "verification", "entries"]) {
+for (const t of ["user", "session", "account", "verification", "entries", "journals", "photos"]) {
   try {
     const c = await pool.query(
       `select column_name from information_schema.columns

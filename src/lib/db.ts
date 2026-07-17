@@ -16,6 +16,20 @@ import {
   type SearchFilters,
 } from "./entry-sql";
 import type { EntryRecord, EntryEnrichment } from "./entry";
+import {
+  insertJournalSql,
+  listJournalsSql,
+  setActiveJournalSql,
+  rowToJournal,
+  type JournalRecord,
+} from "./journal";
+import {
+  insertPhotoSql,
+  listPhotosByEntrySql,
+  getPhotoSql,
+  rowToPhoto,
+  type PhotoRecord,
+} from "./photo";
 
 // The one capability we need from the driver: run a parameterized query and get
 // rows back. neon()'s `sql.query(text, params)` returns rows-by-default, which
@@ -93,4 +107,58 @@ export async function listUnenriched(
   const { text, values } = listUnenrichedSql(limit);
   const rows = await runner.query(text, values);
   return rows.map(rowToEntry);
+}
+
+// Journals (physical-journal archive).
+export async function insertJournal(
+  j: JournalRecord,
+  runner: QueryRunner = defaultRunner(),
+): Promise<JournalRecord> {
+  const { text, values } = insertJournalSql(j);
+  await runner.query(text, values);
+  return j;
+}
+
+export async function listJournals(
+  runner: QueryRunner = defaultRunner(),
+): Promise<JournalRecord[]> {
+  const { text, values } = listJournalsSql();
+  const rows = await runner.query(text, values);
+  return rows.map(rowToJournal);
+}
+
+export async function setActiveJournal(
+  id: string | null,
+  runner: QueryRunner = defaultRunner(),
+): Promise<void> {
+  const { text, values } = setActiveJournalSql(id);
+  await runner.query(text, values);
+}
+
+// Photos (physical-journal archive). NOT best-effort — callers let errors throw.
+export async function insertPhoto(
+  p: PhotoRecord,
+  runner: QueryRunner = defaultRunner(),
+): Promise<PhotoRecord> {
+  const { text, values } = insertPhotoSql(p);
+  await runner.query(text, values);
+  return p;
+}
+
+export async function listPhotosByEntry(
+  entryId: string,
+  runner: QueryRunner = defaultRunner(),
+): Promise<PhotoRecord[]> {
+  const { text, values } = listPhotosByEntrySql(entryId);
+  const rows = await runner.query(text, values);
+  return rows.map(rowToPhoto);
+}
+
+export async function getPhoto(
+  id: string,
+  runner: QueryRunner = defaultRunner(),
+): Promise<PhotoRecord | null> {
+  const { text, values } = getPhotoSql(id);
+  const rows = await runner.query(text, values);
+  return rows.length ? rowToPhoto(rows[0]) : null;
 }

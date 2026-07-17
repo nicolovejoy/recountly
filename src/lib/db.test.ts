@@ -6,10 +6,18 @@ import {
   getEntry,
   updateEntryEnrichment,
   listUnenriched,
+  insertJournal,
+  listJournals,
+  setActiveJournal,
+  insertPhoto,
+  listPhotosByEntry,
+  getPhoto,
   type QueryRunner,
 } from "./db";
 import type { EntryRecord, EntryEnrichment } from "./entry";
 import type { EntryRow } from "./entry-sql";
+import type { JournalRecord } from "./journal";
+import type { PhotoRecord } from "./photo";
 
 const rec: EntryRecord = {
   id: "01HXAMPLE0000000000000000",
@@ -27,6 +35,8 @@ const rec: EntryRecord = {
   audioMime: "audio/webm",
   audioBytes: 12_345,
   audioComplete: null,
+  journalId: null,
+  writtenAt: null,
 };
 
 // Records every query and replays a canned result set — no live DB needed.
@@ -71,7 +81,7 @@ describe("listEntries", () => {
   it("runs the newest-first SELECT and maps rows to EntryRecords", async () => {
     const { runner, calls } = fakeRunner([sampleRow]);
     const out = await listEntries(10, runner);
-    expect(calls[0].text).toContain("ORDER BY recorded_at DESC");
+    expect(calls[0].text).toContain("ORDER BY coalesce(written_at, recorded_at) DESC");
     expect(calls[0].values).toEqual([10]);
     expect(out).toHaveLength(1);
     expect(out[0]).toMatchObject({ id: "01HX", transcript: "hello", tags: ["a"] });
@@ -96,7 +106,7 @@ describe("searchEntries", () => {
   it("with no filters falls back to the newest-first list", async () => {
     const { runner, calls } = fakeRunner([]);
     await searchEntries({}, runner);
-    expect(calls[0].text).toContain("ORDER BY recorded_at DESC");
+    expect(calls[0].text).toContain("ORDER BY coalesce(written_at, recorded_at) DESC");
     expect(calls[0].values).toEqual([50]);
   });
 });
@@ -145,5 +155,72 @@ describe("listUnenriched", () => {
     const { runner, calls } = fakeRunner([]);
     await listUnenriched(undefined, runner);
     expect(calls[0].values).toEqual([50]);
+  });
+});
+
+describe("journal data access", () => {
+  const j: JournalRecord = {
+    id: "01JRNL",
+    label: "Red notebook 1994",
+    notes: null,
+    active: false,
+    createdAt: "2026-07-16T10:00:00.000Z",
+  };
+
+  it("insertJournal runs the parameterized INSERT", async () => {
+    const { runner, calls } = fakeRunner();
+    await insertJournal(j, runner);
+    expect(calls[0].text).toContain("INSERT INTO journals");
+    expect(calls[0].values[0]).toBe("01JRNL");
+  });
+
+  it("listJournals maps rows to JournalRecords", async () => {
+    const { runner } = fakeRunner([
+      { id: "01JRNL", label: "Red", notes: null, active: true, created_at: "2026-07-16T10:00:00.000Z" },
+    ]);
+    const out = await listJournals(runner);
+    expect(out).toEqual([
+      { id: "01JRNL", label: "Red", notes: null, active: true, createdAt: "2026-07-16T10:00:00.000Z" },
+    ]);
+  });
+
+  it("setActiveJournal runs the single-statement toggle", async () => {
+    const { runner, calls } = fakeRunner();
+    await setActiveJournal("01JRNL", runner);
+    expect(calls[0].text).toBe("UPDATE journals SET active = (id = $1)");
+  });
+});
+
+describe("photo data access", () => {
+  const p: PhotoRecord = {
+    id: "01PHOTO",
+    entryId: "01ENTRY",
+    mime: "image/jpeg",
+    bytes: 5,
+    createdAt: "2026-07-16T10:00:00.000Z",
+  };
+  const row = {
+    id: "01PHOTO",
+    entry_id: "01ENTRY",
+    mime: "image/jpeg",
+    bytes: 5,
+    created_at: "2026-07-16T10:00:00.000Z",
+  };
+
+  it("insertPhoto runs the parameterized INSERT", async () => {
+    const { runner, calls } = fakeRunner();
+    await insertPhoto(p, runner);
+    expect(calls[0].text).toContain("INSERT INTO photos");
+    expect(calls[0].values[0]).toBe("01PHOTO");
+  });
+
+  it("listPhotosByEntry maps rows", async () => {
+    const { runner } = fakeRunner([row]);
+    expect(await listPhotosByEntry("01ENTRY", runner)).toEqual([p]);
+  });
+
+  it("getPhoto returns null when absent", async () => {
+    const { runner } = fakeRunner([]);
+    expect(await getPhoto("01PHOTO", runner)).toBeNull();
   });
 });

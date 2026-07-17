@@ -44,3 +44,40 @@ ALTER TABLE entries ADD COLUMN IF NOT EXISTS transcript_tsv tsvector
   ) STORED;
 
 CREATE INDEX IF NOT EXISTS entries_transcript_tsv_gin ON entries USING GIN (transcript_tsv);
+
+-- Physical journal archive (2026-07-16, issues #15/#16). A journal groups
+-- readings by the paper notebook they came from; `active` marks the notebook
+-- currently being read so captures default to it (exactly one active row is
+-- maintained app-side by setActiveJournalSql's single UPDATE).
+CREATE TABLE IF NOT EXISTS journals (
+  id         text        PRIMARY KEY,           -- ULID (src/lib/ulid.ts)
+  label      text        NOT NULL,
+  notes      text,                              -- optional free text
+  active     boolean     NOT NULL DEFAULT false,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- Which notebook an entry belongs to (null = a normal spoken entry) and when
+-- the page was originally *written* — as distinct from recorded_at, which for
+-- a legacy page is when it was read aloud. NOT named occurred_at (see
+-- docs/physical-journal-archive.md).
+ALTER TABLE entries ADD COLUMN IF NOT EXISTS journal_id text REFERENCES journals(id);
+ALTER TABLE entries ADD COLUMN IF NOT EXISTS written_at timestamptz;
+
+-- Page photos, 1 entry — * photos. Blobs are PRIVATE, named photos/<id>.<ext>
+-- (path derived from id — no URL column), served via the auth-gated
+-- GET /api/photo/[id] proxy. Photos are NOT best-effort: a failed upload
+-- fails the save (issue #10 is why).
+CREATE TABLE IF NOT EXISTS photos (
+  id         text        PRIMARY KEY,           -- ULID; capture-ordered
+  entry_id   text        NOT NULL REFERENCES entries(id),
+  mime       text        NOT NULL,
+  bytes      integer     NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS photos_entry_id ON photos (entry_id);
+
+-- The entry's *effective* date: when written if known, else when spoken.
+-- List ordering and search date filters use this expression.
+CREATE INDEX IF NOT EXISTS entries_effective_at_desc
+  ON entries ((coalesce(written_at, recorded_at)) DESC);
