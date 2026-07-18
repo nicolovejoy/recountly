@@ -90,7 +90,7 @@ export default function RecorderClient() {
       );
       if (totalBytes > SAVE_BYTES_BUDGET) {
         setSaveError(
-          "Save is too large for one upload — remove a photo and press Done again (the transcript and photos are kept).",
+          "Save is too large for one upload — remove a photo, then tap Record and Done to save again (the transcript and photos are kept).",
         );
         setSaveState("error");
         return;
