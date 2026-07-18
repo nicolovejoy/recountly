@@ -4,19 +4,24 @@
 // recorded_at date range. State lives in EntryList; this just renders inputs and
 // reports changes. The query is debounced upstream before it hits the API.
 
-type Filters = { query: string; from: string; to: string };
+import type { JournalRecord } from "@/lib/journal";
+
+type Filters = { query: string; from: string; to: string; journal: string };
 
 export default function SearchBar({
   query,
   from,
   to,
+  journal,
+  journals,
   onChange,
   onClear,
 }: Filters & {
+  journals: JournalRecord[] | null;
   onChange: (patch: Partial<Filters>) => void;
   onClear: () => void;
 }) {
-  const hasFilters = Boolean(query || from || to);
+  const hasFilters = Boolean(query || from || to || journal);
   const field =
     "rounded-lg border border-foreground/15 bg-transparent px-3 py-2 text-sm outline-none focus:border-foreground/40";
 
@@ -53,6 +58,24 @@ export default function SearchBar({
             className={field}
           />
         </label>
+        {journals !== null && journals.length > 0 && (
+          <label className="flex items-center gap-1">
+            <span>Journal</span>
+            <select
+              value={journal}
+              onChange={(e) => onChange({ journal: e.target.value })}
+              aria-label="Filter by journal"
+              className={field}
+            >
+              <option value="">all</option>
+              {journals.map((j) => (
+                <option key={j.id} value={j.id}>
+                  {j.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         {hasFilters && (
           <button
             type="button"

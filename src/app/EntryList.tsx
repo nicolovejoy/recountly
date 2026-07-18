@@ -10,6 +10,8 @@ import { useEffect, useMemo, useState } from "react";
 import { formatElapsed } from "@/lib/elapsed";
 import { buildSearchQueryString } from "@/lib/search";
 import type { EntryRecord } from "@/lib/entry";
+import type { JournalRecord } from "@/lib/journal";
+import type { PhotoRecord } from "@/lib/photo";
 import SearchBar from "./SearchBar";
 
 function formatWhen(iso: string): string {
@@ -17,14 +19,30 @@ function formatWhen(iso: string): string {
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
 }
 
-export default function EntryList({ reloadKey }: { reloadKey: number }) {
+export default function EntryList({
+  reloadKey,
+  journals,
+}: {
+  reloadKey: number;
+  journals: JournalRecord[] | null;
+}) {
   const [query, setQuery] = useState("");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
+  const [journalFilter, setJournalFilter] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [entries, setEntries] = useState<EntryRecord[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+
+  const journalLabel = useMemo(() => {
+    const m = new Map<string, string>();
+    journals?.forEach((j) => m.set(j.id, j.label));
+    return m;
+  }, [journals]);
+
+  // Photos are fetched lazily on first expand and cached per entry id.
+  const [photosByEntry, setPhotosByEntry] = useState<Record<string, PhotoRecord[]>>({});
 
   // Debounce the free-text box so we don't fire a request per keystroke.
   useEffect(() => {
@@ -33,10 +51,16 @@ export default function EntryList({ reloadKey }: { reloadKey: number }) {
   }, [query]);
 
   const queryString = useMemo(
-    () => buildSearchQueryString({ query: debouncedQuery, from, to }),
-    [debouncedQuery, from, to],
+    () =>
+      buildSearchQueryString({
+        query: debouncedQuery,
+        from,
+        to,
+        journalId: journalFilter || undefined,
+      }),
+    [debouncedQuery, from, to, journalFilter],
   );
-  const isSearching = Boolean(debouncedQuery || from || to);
+  const isSearching = Boolean(debouncedQuery || from || to || journalFilter);
 
   useEffect(() => {
     let alive = true;
@@ -65,6 +89,19 @@ export default function EntryList({ reloadKey }: { reloadKey: number }) {
       else next.add(id);
       return next;
     });
+    if (!(id in photosByEntry)) {
+      // Mark as requested immediately so a double-tap doesn't double-fetch.
+      setPhotosByEntry((prev) => ({ ...prev, [id]: [] }));
+      fetch(`/api/entries/${id}/photos`)
+        .then(async (res) => {
+          if (!res.ok) throw new Error(`photos route ${res.status}`);
+          return (await res.json()) as { photos: PhotoRecord[] };
+        })
+        .then((data) => setPhotosByEntry((prev) => ({ ...prev, [id]: data.photos })))
+        .catch(() => {
+          // Leave the cached empty list; the transcript is still readable.
+        });
+    }
   }
 
   return (
@@ -75,15 +112,19 @@ export default function EntryList({ reloadKey }: { reloadKey: number }) {
         query={query}
         from={from}
         to={to}
+        journal={journalFilter}
+        journals={journals}
         onChange={(p) => {
           if (p.query !== undefined) setQuery(p.query);
           if (p.from !== undefined) setFrom(p.from);
           if (p.to !== undefined) setTo(p.to);
+          if (p.journal !== undefined) setJournalFilter(p.journal);
         }}
         onClear={() => {
           setQuery("");
           setFrom("");
           setTo("");
+          setJournalFilter("");
         }}
       />
 
@@ -115,6 +156,18 @@ export default function EntryList({ reloadKey }: { reloadKey: number }) {
               </div>
               {e.title && (
                 <span className="text-xs text-foreground/40">{formatWhen(e.recordedAt)}</span>
+              )}
+              {(e.journalId || e.writtenAt) && (
+                <div className="flex flex-wrap items-center gap-2 text-xs text-foreground/40">
+                  {e.journalId && (
+                    <span className="rounded-full border border-foreground/10 px-2 py-0.5">
+                      📓 {journalLabel.get(e.journalId) ?? "journal"}
+                    </span>
+                  )}
+                  {e.writtenAt && (
+                    <span>written {new Date(e.writtenAt).toLocaleDateString()}</span>
+                  )}
+                </div>
               )}
               {e.summary && (
                 <p className="text-sm italic text-foreground/60">{e.summary}</p>
@@ -148,6 +201,21 @@ export default function EntryList({ reloadKey }: { reloadKey: number }) {
                   {isOpen ? "Show less" : "Show more"}
                 </span>
               </button>
+              {isOpen && (photosByEntry[e.id]?.length ?? 0) > 0 && (
+                <ul className="flex flex-wrap gap-2">
+                  {photosByEntry[e.id].map((p) => (
+                    <li key={p.id}>
+                      {/* eslint-disable-next-line @next/next/no-img-element -- auth-gated same-origin proxy; next/image's optimizer can't fetch it */}
+                      <img
+                        src={`/api/photo/${p.id}`}
+                        alt="Journal page"
+                        loading="lazy"
+                        className="max-h-96 rounded-lg border border-foreground/10"
+                      />
+                    </li>
+                  ))}
+                </ul>
+              )}
               {e.audioUrl && (
                 <audio controls preload="none" src={e.audioUrl} className="mt-1 w-full">
                   <track kind="captions" />
