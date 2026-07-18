@@ -3,6 +3,7 @@ import {
   validateJournalInput,
   insertJournalSql,
   listJournalsSql,
+  getJournalSql,
   setActiveJournalSql,
   rowToJournal,
   type JournalRecord,
@@ -50,10 +51,22 @@ describe("listJournalsSql", () => {
   });
 });
 
+describe("getJournalSql", () => {
+  it("selects one journal by id", () => {
+    const q = getJournalSql("01JRNL");
+    expect(q.text).toBe(
+      "SELECT id, label, notes, active, created_at FROM journals WHERE id = $1",
+    );
+    expect(q.values).toEqual(["01JRNL"]);
+  });
+});
+
 describe("setActiveJournalSql", () => {
-  it("activates one journal and deactivates the rest in a single statement", () => {
+  it("activates one journal and deactivates the rest in a single atomic statement, touching no rows on an unknown id", () => {
     const q = setActiveJournalSql("01JRNL");
-    expect(q.text).toBe("UPDATE journals SET active = (id = $1)");
+    expect(q.text).toBe(
+      "UPDATE journals SET active = (id = $1) WHERE EXISTS (SELECT 1 FROM journals WHERE id = $1) RETURNING id",
+    );
     expect(q.values).toEqual(["01JRNL"]);
   });
   it("null deactivates all", () => {

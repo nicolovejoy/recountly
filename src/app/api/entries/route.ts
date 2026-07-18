@@ -14,7 +14,7 @@ import {
 } from "@/lib/entry";
 import { uploadAudio, audioProxyPath } from "@/lib/blob";
 import { uploadPhoto, photoProxyPath, type PhotoRecord } from "@/lib/photo";
-import { insertEntry, insertPhoto, searchEntries } from "@/lib/db";
+import { insertEntry, insertPhoto, searchEntries, getJournal } from "@/lib/db";
 import { enrichTranscript } from "@/lib/enrich";
 import { getAnthropic } from "@/lib/anthropic";
 import { parseSearchFilters } from "@/lib/search";
@@ -90,6 +90,13 @@ export async function POST(request: Request) {
   const errors = [...validateEntryInput(input), ...photoProblems];
   if (errors.length) {
     return Response.json({ error: "Invalid entry", problems: errors }, { status: 400 });
+  }
+
+  // Checked before any blob upload: a journalId that doesn't exist would
+  // otherwise let photo/audio blobs upload and then fail the entry INSERT on
+  // the FK (entries.journal_id REFERENCES journals(id)), orphaning them.
+  if (input.journalId && !(await getJournal(input.journalId))) {
+    return Response.json({ error: "Unknown journal" }, { status: 400 });
   }
 
   const id = ulid();

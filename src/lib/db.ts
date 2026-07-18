@@ -19,6 +19,7 @@ import type { EntryRecord, EntryEnrichment } from "./entry";
 import {
   insertJournalSql,
   listJournalsSql,
+  getJournalSql,
   setActiveJournalSql,
   rowToJournal,
   type JournalRecord,
@@ -127,12 +128,25 @@ export async function listJournals(
   return rows.map(rowToJournal);
 }
 
+export async function getJournal(
+  id: string,
+  runner: QueryRunner = defaultRunner(),
+): Promise<JournalRecord | null> {
+  const { text, values } = getJournalSql(id);
+  const rows = await runner.query(text, values);
+  return rows.length ? rowToJournal(rows[0]) : null;
+}
+
+// Returns whether the activation actually matched a journal (true always for
+// id == null — clearing the lock has nothing to 404 on), so the route can
+// tell an unknown id apart from a successful activation.
 export async function setActiveJournal(
   id: string | null,
   runner: QueryRunner = defaultRunner(),
-): Promise<void> {
+): Promise<boolean> {
   const { text, values } = setActiveJournalSql(id);
-  await runner.query(text, values);
+  const rows = await runner.query(text, values);
+  return id == null ? true : rows.length > 0;
 }
 
 // Photos (physical-journal archive). NOT best-effort — callers let errors throw.

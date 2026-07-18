@@ -8,6 +8,7 @@ import {
   listUnenriched,
   insertJournal,
   listJournals,
+  getJournal,
   setActiveJournal,
   insertPhoto,
   listPhotosByEntry,
@@ -184,10 +185,39 @@ describe("journal data access", () => {
     ]);
   });
 
-  it("setActiveJournal runs the single-statement toggle", async () => {
-    const { runner, calls } = fakeRunner();
-    await setActiveJournal("01JRNL", runner);
-    expect(calls[0].text).toBe("UPDATE journals SET active = (id = $1)");
+  it("setActiveJournal runs the single-statement toggle and returns true when the id matched", async () => {
+    const { runner, calls } = fakeRunner([{ id: "01JRNL" }]);
+    const ok = await setActiveJournal("01JRNL", runner);
+    expect(calls[0].text).toContain("UPDATE journals SET active = (id = $1)");
+    expect(ok).toBe(true);
+  });
+
+  it("setActiveJournal returns false when no journal matched the id", async () => {
+    const { runner } = fakeRunner([]);
+    expect(await setActiveJournal("nope", runner)).toBe(false);
+  });
+
+  it("setActiveJournal(null) always returns true (clearing the lock has nothing to 404 on)", async () => {
+    const { runner } = fakeRunner([]);
+    expect(await setActiveJournal(null, runner)).toBe(true);
+  });
+
+  it("getJournal returns a mapped journal when a row exists", async () => {
+    const { runner } = fakeRunner([
+      { id: "01JRNL", label: "Red", notes: null, active: true, created_at: "2026-07-16T10:00:00.000Z" },
+    ]);
+    expect(await getJournal("01JRNL", runner)).toEqual({
+      id: "01JRNL",
+      label: "Red",
+      notes: null,
+      active: true,
+      createdAt: "2026-07-16T10:00:00.000Z",
+    });
+  });
+
+  it("getJournal returns null when no row matches", async () => {
+    const { runner } = fakeRunner([]);
+    expect(await getJournal("nope", runner)).toBeNull();
   });
 });
 

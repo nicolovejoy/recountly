@@ -43,13 +43,26 @@ export function listJournalsSql(): SqlQuery {
   };
 }
 
+export function getJournalSql(id: string): SqlQuery {
+  return {
+    text: `SELECT ${COLUMNS} FROM journals WHERE id = $1`,
+    values: [id],
+  };
+}
+
 // Activating one journal deactivates every other row in the same statement;
-// null means "no active journal".
+// null means "no active journal". The EXISTS guard keeps a nonexistent id from
+// touching any row (without it, the no-WHERE UPDATE would deactivate every
+// journal and only then report the miss): unknown id → zero rows updated →
+// zero rows returned, while a hit updates every row and RETURNING is non-empty.
 export function setActiveJournalSql(id: string | null): SqlQuery {
   if (id == null) {
     return { text: "UPDATE journals SET active = false WHERE active", values: [] };
   }
-  return { text: "UPDATE journals SET active = (id = $1)", values: [id] };
+  return {
+    text: "UPDATE journals SET active = (id = $1) WHERE EXISTS (SELECT 1 FROM journals WHERE id = $1) RETURNING id",
+    values: [id],
+  };
 }
 
 export function rowToJournal(row: Record<string, unknown>): JournalRecord {

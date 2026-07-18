@@ -22,7 +22,10 @@ export async function PUT(request: Request) {
     );
   }
   try {
-    await setActiveJournal(body.id as string | null);
+    const activated = await setActiveJournal(body.id as string | null);
+    if (!activated) {
+      return Response.json({ error: "Unknown journal" }, { status: 404 });
+    }
   } catch (err) {
     return Response.json(
       { error: "Failed to set active journal", detail: String(err) },
