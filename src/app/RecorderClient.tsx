@@ -229,7 +229,7 @@ export default function RecorderClient() {
         </p>
       )}
 
-      <EntryList reloadKey={reloadKey} />
+      <EntryList reloadKey={reloadKey} journals={journals} />
 
       <EventLog log={log} />
     </main>
