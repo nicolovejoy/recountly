@@ -8,12 +8,17 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { primaryAction } from "@/lib/recorder-state";
 import { buildEntryFormData } from "@/lib/entry-form";
+import { downscalePhoto } from "@/lib/image";
+import { writtenAtIso } from "@/lib/written-at";
 import { useRecorder, type RecordingResult } from "./useRecorder";
+import { useJournals } from "./useJournals";
 import TranscriptEditor, { type TranscriptEditorHandle } from "./TranscriptEditor";
 import RecordButton from "./RecordButton";
 import RecStatusLine from "./RecStatusLine";
 import EventLog from "./EventLog";
 import EntryList from "./EntryList";
+import JournalBar from "./JournalBar";
+import PhotoTray from "./PhotoTray";
 
 type SaveState = "idle" | "saving" | "saved" | "error";
 
@@ -26,43 +31,93 @@ export default function RecorderClient() {
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const [saveError, setSaveError] = useState<string | null>(null);
 
-  // Done's save trigger: read the transcript the editor holds, attach the
-  // best-effort audio, POST it, then refresh the list. An empty transcript is a
-  // no-op (nothing was said/typed). Audio failing is fine — the route still
-  // saves the transcript; here we just send whatever audio we captured.
-  const onStop = useCallback((result: RecordingResult) => {
-    const transcript = editorRef.current?.getValue().trim() ?? "";
-    if (!transcript) {
-      setSaveState("idle");
-      return;
+  const { journals, active, error: journalsError, create, setActive } = useJournals();
+  const [writtenDate, setWrittenDate] = useState("");
+  // Photos pending for the entry being captured. Downscaled at attach time
+  // (load-bearing: raw phone photos exceed Vercel's ~4.5MB body limit).
+  // Cleared ONLY on successful save — photos are not best-effort.
+  const [pendingPhotos, setPendingPhotos] = useState<
+    { key: number; blob: Blob; mime: string; previewUrl: string }[]
+  >([]);
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const [photoError, setPhotoError] = useState<string | null>(null);
+  const photoKeyRef = useRef(0);
+
+  const addPhotos = useCallback(async (files: File[]) => {
+    setPhotoBusy(true);
+    setPhotoError(null);
+    for (const file of files) {
+      try {
+        const { blob, mime } = await downscalePhoto(file);
+        photoKeyRef.current += 1;
+        setPendingPhotos((prev) => [
+          ...prev,
+          { key: photoKeyRef.current, blob, mime, previewUrl: URL.createObjectURL(blob) },
+        ]);
+      } catch {
+        // NOT silent: a page photo that can't be read must be re-shot or
+        // re-picked (e.g. HEIC on a browser that can't decode it).
+        setPhotoError(`Couldn't read ${file.name || "a photo"} — try re-taking it as JPEG.`);
+      }
     }
-    setSaveState("saving");
-    setSaveError(null);
-    const body = buildEntryFormData({
-      transcript,
-      durationSeconds: result.durationSeconds,
-      audio: result.audioBlob
-        ? {
-            blob: result.audioBlob,
-            mime: result.audioMime ?? "audio/webm",
-            complete: result.audioComplete ?? true,
-          }
-        : null,
-    });
-    fetch("/api/entries", { method: "POST", body })
-      .then(async (res) => {
-        if (!res.ok) throw new Error(`save failed (${res.status}): ${await res.text()}`);
-      })
-      .then(() => {
-        editorRef.current?.clear();
-        setSaveState("saved");
-        setReloadKey((k) => k + 1);
-      })
-      .catch((err) => {
-        setSaveError(err instanceof Error ? err.message : String(err));
-        setSaveState("error");
-      });
+    setPhotoBusy(false);
   }, []);
+
+  const removePhoto = useCallback((key: number) => {
+    setPendingPhotos((prev) => {
+      const gone = prev.find((p) => p.key === key);
+      if (gone) URL.revokeObjectURL(gone.previewUrl);
+      return prev.filter((p) => p.key !== key);
+    });
+  }, []);
+
+  // Done's save trigger: read the transcript the editor holds, attach the
+  // best-effort audio plus the journal context and verified page photos, POST
+  // it, then refresh the list. An empty transcript is a no-op. Audio failing
+  // is fine; photos are NOT best-effort — the route fails the save if one
+  // can't be stored, and we keep the tray so the user retries.
+  const onStop = useCallback(
+    (result: RecordingResult) => {
+      const transcript = editorRef.current?.getValue().trim() ?? "";
+      if (!transcript) {
+        setSaveState("idle");
+        return;
+      }
+      setSaveState("saving");
+      setSaveError(null);
+      const body = buildEntryFormData({
+        transcript,
+        durationSeconds: result.durationSeconds,
+        audio: result.audioBlob
+          ? {
+              blob: result.audioBlob,
+              mime: result.audioMime ?? "audio/webm",
+              complete: result.audioComplete ?? true,
+            }
+          : null,
+        journalId: active?.id,
+        writtenAt: writtenAtIso(writtenDate),
+        photos: pendingPhotos.map((p) => ({ blob: p.blob, mime: p.mime })),
+      });
+      fetch("/api/entries", { method: "POST", body })
+        .then(async (res) => {
+          if (!res.ok) throw new Error(`save failed (${res.status}): ${await res.text()}`);
+        })
+        .then(() => {
+          editorRef.current?.clear();
+          pendingPhotos.forEach((p) => URL.revokeObjectURL(p.previewUrl));
+          setPendingPhotos([]);
+          setWrittenDate("");
+          setSaveState("saved");
+          setReloadKey((k) => k + 1);
+        })
+        .catch((err) => {
+          setSaveError(err instanceof Error ? err.message : String(err));
+          setSaveState("error");
+        });
+    },
+    [active?.id, writtenDate, pendingPhotos],
+  );
 
   const { status, elapsedSec, interim, errorMsg, log, start, pause, resume, stop, meterRef } =
     useRecorder({
@@ -131,6 +186,30 @@ export default function RecorderClient() {
         )}
         {status === "paused" && (
           <p className="text-xs text-foreground/40">tap the red button to resume</p>
+        )}
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <JournalBar
+          journals={journals}
+          active={active}
+          writtenDate={writtenDate}
+          onSelect={(id) => void setActive(id)}
+          onCreate={async (label) => {
+            const j = await create(label);
+            if (j) await setActive(j.id);
+          }}
+          onWrittenDateChange={setWrittenDate}
+        />
+        <PhotoTray
+          photos={pendingPhotos.map(({ key, previewUrl }) => ({ key, previewUrl }))}
+          busy={photoBusy}
+          onAdd={(files) => void addPhotos(files)}
+          onRemove={removePhoto}
+        />
+        {photoError && <p className="text-xs text-red-500">{photoError}</p>}
+        {journalsError && (
+          <p className="text-xs text-red-500">Journals unavailable: {journalsError}</p>
         )}
       </div>
 
