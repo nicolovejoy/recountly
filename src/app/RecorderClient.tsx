@@ -10,7 +10,8 @@ import { primaryAction } from "@/lib/recorder-state";
 import { buildEntryFormData } from "@/lib/entry-form";
 import { downscalePhoto } from "@/lib/image";
 import { writtenAtIso } from "@/lib/written-at";
-import { savePayloadBytes, SAVE_BYTES_BUDGET } from "@/lib/payload-size";
+import { SAVE_BYTES_BUDGET } from "@/lib/payload-size";
+import { planSave } from "@/lib/save-plan";
 import { useRecorder, type RecordingResult } from "./useRecorder";
 import { useJournals } from "./useJournals";
 import TranscriptEditor, { type TranscriptEditorHandle } from "./TranscriptEditor";
@@ -21,7 +22,7 @@ import EntryList from "./EntryList";
 import JournalBar from "./JournalBar";
 import PhotoTray from "./PhotoTray";
 
-type SaveState = "idle" | "saving" | "saved" | "error";
+type SaveState = "idle" | "finishing" | "saving" | "saved" | "error";
 
 // Inlined at build time from next.config.ts (PST, "MM/DD/YYYY HH:MM").
 const BUILD_TIME = process.env.NEXT_PUBLIC_BUILD_TIME;
@@ -80,15 +81,20 @@ export default function RecorderClient() {
   const onStop = useCallback(
     (result: RecordingResult) => {
       const transcript = editorRef.current?.getValue().trim() ?? "";
-      if (!transcript) {
-        setSaveState("idle");
-        return;
-      }
-      const totalBytes = savePayloadBytes(
+      const plan = planSave(
+        transcript,
         result.audioBlob?.size ?? 0,
         pendingPhotos.map((p) => p.blob.size),
+        SAVE_BYTES_BUDGET,
       );
-      if (totalBytes > SAVE_BYTES_BUDGET) {
+      if (plan.kind === "empty") {
+        setSaveError(
+          "Nothing to save — the transcript was empty when the session ended. Any attached photos are still here; record or dictate again and they'll be included.",
+        );
+        setSaveState("error");
+        return;
+      }
+      if (plan.kind === "too-large") {
         setSaveError(
           "Save is too large for one upload — remove a photo, then tap Record and Done to save again (the transcript and photos are kept).",
         );
@@ -185,7 +191,10 @@ export default function RecorderClient() {
         <RecStatusLine status={status} elapsedSec={elapsedSec} meterRef={meterRef} />
         {inSession && (
           <button
-            onClick={stop}
+            onClick={() => {
+              setSaveState("finishing");
+              stop();
+            }}
             className="rounded-full border border-foreground/20 px-4 py-1 text-sm text-foreground/70 transition-colors hover:bg-foreground/[0.06]"
           >
             Done
@@ -234,6 +243,7 @@ export default function RecorderClient() {
 
       <TranscriptEditor ref={editorRef} interim={interim} />
 
+      {saveState === "finishing" && <p className="text-xs text-foreground/40">Finishing…</p>}
       {saveState === "saving" && <p className="text-xs text-foreground/40">Saving…</p>}
       {saveState === "saved" && <p className="text-xs text-green-600">Saved ✓</p>}
       {saveState === "error" && (
