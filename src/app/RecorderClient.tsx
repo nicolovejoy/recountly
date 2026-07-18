@@ -10,6 +10,7 @@ import { primaryAction } from "@/lib/recorder-state";
 import { buildEntryFormData } from "@/lib/entry-form";
 import { downscalePhoto } from "@/lib/image";
 import { writtenAtIso } from "@/lib/written-at";
+import { savePayloadBytes, SAVE_BYTES_BUDGET } from "@/lib/payload-size";
 import { useRecorder, type RecordingResult } from "./useRecorder";
 import { useJournals } from "./useJournals";
 import TranscriptEditor, { type TranscriptEditorHandle } from "./TranscriptEditor";
@@ -81,6 +82,17 @@ export default function RecorderClient() {
       const transcript = editorRef.current?.getValue().trim() ?? "";
       if (!transcript) {
         setSaveState("idle");
+        return;
+      }
+      const totalBytes = savePayloadBytes(
+        result.audioBlob?.size ?? 0,
+        pendingPhotos.map((p) => p.blob.size),
+      );
+      if (totalBytes > SAVE_BYTES_BUDGET) {
+        setSaveError(
+          "Save is too large for one upload — remove a photo and press Done again (the transcript and photos are kept).",
+        );
+        setSaveState("error");
         return;
       }
       setSaveState("saving");
