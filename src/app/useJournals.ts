@@ -6,24 +6,33 @@
 // survives reloads and device switches. Same layering as useRecorder: this
 // hook owns the fetches; components stay presentational.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { JournalRecord } from "@/lib/journal";
 
 export function useJournals() {
   const [journals, setJournals] = useState<JournalRecord[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Generation counter (same spirit as EntryList's `alive` flag): create()
+  // triggers a reload, then the caller PUTs /active which triggers another —
+  // if the first response lands last it must not clobber the second's result.
+  const genRef = useRef(0);
 
   const reload = useCallback(() => {
+    const gen = ++genRef.current;
     fetch("/api/journals")
       .then(async (res) => {
         if (!res.ok) throw new Error(`journals route ${res.status}`);
         return (await res.json()) as { journals: JournalRecord[] };
       })
       .then((data) => {
+        if (gen !== genRef.current) return;
         setJournals(data.journals);
         setError(null);
       })
-      .catch((err) => setError(err instanceof Error ? err.message : String(err)));
+      .catch((err) => {
+        if (gen !== genRef.current) return;
+        setError(err instanceof Error ? err.message : String(err));
+      });
   }, []);
 
   useEffect(() => {
