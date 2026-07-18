@@ -68,6 +68,15 @@ export function getPhotoSql(id: string): SqlQuery {
   };
 }
 
+// Issue #9 delete: photos.entry_id has no ON DELETE CASCADE (db/schema.sql),
+// so callers must run this before deleteEntrySql.
+export function deletePhotosByEntrySql(entryId: string): SqlQuery {
+  return {
+    text: `DELETE FROM photos WHERE entry_id = $1`,
+    values: [entryId],
+  };
+}
+
 export function rowToPhoto(row: Record<string, unknown>): PhotoRecord {
   return {
     id: String(row.id),

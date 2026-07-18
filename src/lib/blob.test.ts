@@ -4,7 +4,9 @@ import {
   audioBlobPath,
   audioProxyPath,
   uploadAudio,
+  deleteBlobPaths,
   type PutFn,
+  type DelFn,
 } from "./blob";
 
 describe("audioExtension", () => {
@@ -52,5 +54,34 @@ describe("uploadAudio", () => {
       bytes: 8,
       mime: "audio/webm;codecs=opus",
     });
+  });
+});
+
+describe("deleteBlobPaths", () => {
+  it("calls delFn once with the array of paths", async () => {
+    const calls: (string[] | string)[] = [];
+    const fakeDel: DelFn = async (paths) => {
+      calls.push(paths);
+    };
+    await deleteBlobPaths(["audio/01HX.webm", "photos/01PHOTO.jpg"], fakeDel);
+    expect(calls).toEqual([["audio/01HX.webm", "photos/01PHOTO.jpg"]]);
+  });
+
+  it("is a no-op when paths is empty (delFn not called)", async () => {
+    let called = false;
+    const fakeDel: DelFn = async () => {
+      called = true;
+    };
+    await deleteBlobPaths([], fakeDel);
+    expect(called).toBe(false);
+  });
+
+  it("propagates a delFn rejection", async () => {
+    const failingDel: DelFn = async () => {
+      throw new Error("blob store unreachable");
+    };
+    await expect(deleteBlobPaths(["audio/01HX.webm"], failingDel)).rejects.toThrow(
+      "blob store unreachable",
+    );
   });
 });

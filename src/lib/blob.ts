@@ -3,7 +3,7 @@
 // pure and unit-tested; uploadAudio is a thin wrapper over @vercel/blob's put()
 // with the put fn injectable so the wrapper is testable without network.
 
-import { put } from "@vercel/blob";
+import { put, del } from "@vercel/blob";
 
 // Map a MediaRecorder mime (possibly with a `;codecs=...` suffix) to a file
 // extension for the blob name. Unknown types fall back to .bin.
@@ -65,4 +65,19 @@ export async function uploadAudio(
   const pathname = audioBlobPath(id, mime);
   await putFn(pathname, body, { access: "private", contentType: mime });
   return { pathname, bytes, mime };
+}
+
+// The slice of @vercel/blob's del() we depend on — injectable for tests.
+export type DelFn = (paths: string[] | string) => Promise<void>;
+
+// Issue #9 delete: batch-remove blob paths (audio + photos) for one entry.
+// A no-op when there's nothing to delete (an entry with no audio/photos)
+// rather than calling delFn with an empty array. Failures propagate — the
+// caller (the DELETE route) decides whether that's best-effort or fatal.
+export async function deleteBlobPaths(
+  paths: string[],
+  delFn: DelFn = del,
+): Promise<void> {
+  if (paths.length === 0) return;
+  await delFn(paths);
 }

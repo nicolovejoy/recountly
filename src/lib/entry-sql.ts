@@ -104,6 +104,15 @@ export function getEntrySql(id: string): SqlQuery {
   };
 }
 
+// Issue #9 delete. RETURNING id lets the caller tell "deleted" from
+// "no such row" without a separate SELECT.
+export function deleteEntrySql(id: string): SqlQuery {
+  return {
+    text: `DELETE FROM entries WHERE id = $1 RETURNING id`,
+    values: [id],
+  };
+}
+
 // Phase 4 enrichment backfill: write the LLM fields onto an existing row and
 // bump updated_at. Takes the enrichment plus the id and a now-ISO timestamp.
 export function updateEnrichmentSql(

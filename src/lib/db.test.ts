@@ -4,6 +4,7 @@ import {
   listEntries,
   searchEntries,
   getEntry,
+  deleteEntry,
   updateEntryEnrichment,
   listUnenriched,
   insertJournal,
@@ -12,6 +13,7 @@ import {
   insertPhoto,
   listPhotosByEntry,
   getPhoto,
+  deletePhotosByEntry,
   type QueryRunner,
 } from "./db";
 import type { EntryRecord, EntryEnrichment } from "./entry";
@@ -124,6 +126,21 @@ describe("getEntry", () => {
   });
 });
 
+describe("deleteEntry", () => {
+  it("returns true when a row was deleted", async () => {
+    const { runner, calls } = fakeRunner([{ id: "01HX" }]);
+    const out = await deleteEntry("01HX", runner);
+    expect(calls[0].text).toBe("DELETE FROM entries WHERE id = $1 RETURNING id");
+    expect(calls[0].values).toEqual(["01HX"]);
+    expect(out).toBe(true);
+  });
+
+  it("returns false when no row matched", async () => {
+    const { runner } = fakeRunner([]);
+    expect(await deleteEntry("nope", runner)).toBe(false);
+  });
+});
+
 describe("updateEntryEnrichment", () => {
   it("runs a parameterized UPDATE carrying the enrichment + id", async () => {
     const { runner, calls } = fakeRunner();
@@ -222,5 +239,12 @@ describe("photo data access", () => {
   it("getPhoto returns null when absent", async () => {
     const { runner } = fakeRunner([]);
     expect(await getPhoto("01PHOTO", runner)).toBeNull();
+  });
+
+  it("deletePhotosByEntry runs the parameterized DELETE", async () => {
+    const { runner, calls } = fakeRunner();
+    await deletePhotosByEntry("01ENTRY", runner);
+    expect(calls[0].text).toBe("DELETE FROM photos WHERE entry_id = $1");
+    expect(calls[0].values).toEqual(["01ENTRY"]);
   });
 });
