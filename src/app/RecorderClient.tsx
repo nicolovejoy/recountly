@@ -210,6 +210,7 @@ export default function RecorderClient() {
           onCreate={async (label) => {
             const j = await create(label);
             if (j) await setActive(j.id);
+            return j !== null;
           }}
           onWrittenDateChange={setWrittenDate}
         />

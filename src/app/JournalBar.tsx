@@ -24,7 +24,7 @@ export default function JournalBar({
   active: JournalRecord | null;
   writtenDate: string;
   onSelect: (id: string | null) => void;
-  onCreate: (label: string) => Promise<void>;
+  onCreate: (label: string) => Promise<boolean>;
   onWrittenDateChange: (date: string) => void;
 }) {
   const [creating, setCreating] = useState(false);
@@ -37,9 +37,13 @@ export default function JournalBar({
   async function submitNew() {
     const label = newLabel.trim();
     if (!label) return;
-    await onCreate(label);
-    setNewLabel("");
-    setCreating(false);
+    const ok = await onCreate(label);
+    // On failure the form stays open with the label intact — the
+    // journals-error line in RecorderClient shows why (funneled via useJournals' error state).
+    if (ok) {
+      setNewLabel("");
+      setCreating(false);
+    }
   }
 
   return (
