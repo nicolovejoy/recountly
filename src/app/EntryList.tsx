@@ -29,6 +29,7 @@ export default function EntryList({
   const [query, setQuery] = useState("");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
+  const [journalFilter, setJournalFilter] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [entries, setEntries] = useState<EntryRecord[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -50,10 +51,16 @@ export default function EntryList({
   }, [query]);
 
   const queryString = useMemo(
-    () => buildSearchQueryString({ query: debouncedQuery, from, to }),
-    [debouncedQuery, from, to],
+    () =>
+      buildSearchQueryString({
+        query: debouncedQuery,
+        from,
+        to,
+        journalId: journalFilter || undefined,
+      }),
+    [debouncedQuery, from, to, journalFilter],
   );
-  const isSearching = Boolean(debouncedQuery || from || to);
+  const isSearching = Boolean(debouncedQuery || from || to || journalFilter);
 
   useEffect(() => {
     let alive = true;
@@ -105,15 +112,19 @@ export default function EntryList({
         query={query}
         from={from}
         to={to}
+        journal={journalFilter}
+        journals={journals}
         onChange={(p) => {
           if (p.query !== undefined) setQuery(p.query);
           if (p.from !== undefined) setFrom(p.from);
           if (p.to !== undefined) setTo(p.to);
+          if (p.journal !== undefined) setJournalFilter(p.journal);
         }}
         onClear={() => {
           setQuery("");
           setFrom("");
           setTo("");
+          setJournalFilter("");
         }}
       />
 
