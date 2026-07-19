@@ -260,12 +260,12 @@ export async function uploadEntryBlobs(
   pathname.
 
 **Steps:**
-- [ ] Failing tests (fake `ClientUploadFn`): audio+photos happy path returns the right
+- [x] Failing tests (fake `ClientUploadFn`): audio+photos happy path returns the right
   refs and calls upload with `access:"private"` + the handleUploadUrl + `multipart:true`
   only for audio; audio-upload throw → `audio:null` and photos still uploaded; a
   photo-upload throw rejects the whole call (and doesn't swallow).
-- [ ] Implement; `pnpm test` green.
-- [ ] Commit: `feat(save): client-direct blob upload orchestration (blob-upload) (#23)`
+- [x] Implement; `pnpm test` green.
+- [x] Commit: `feat(save): client-direct blob upload orchestration (blob-upload) (#23)`
 
 ---
 
