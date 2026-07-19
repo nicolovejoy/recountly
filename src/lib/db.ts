@@ -11,6 +11,8 @@ import {
   getEntrySql,
   deleteEntrySql,
   softDeleteEntrySql,
+  listTrashedSql,
+  restoreEntrySql,
   updateEnrichmentSql,
   listUnenrichedSql,
   rowToEntry,
@@ -111,6 +113,27 @@ export async function softDeleteEntry(
   runner: QueryRunner = defaultRunner(),
 ): Promise<boolean> {
   const { text, values } = softDeleteEntrySql(id);
+  const rows = await runner.query(text, values);
+  return rows.length > 0;
+}
+
+// Trash view (issue #27): trashed rows only, newest-trashed first.
+export async function listTrashedEntries(
+  limit = 50,
+  runner: QueryRunner = defaultRunner(),
+): Promise<EntryRecord[]> {
+  const { text, values } = listTrashedSql(limit);
+  const rows = await runner.query(text, values);
+  return rows.map(rowToEntry);
+}
+
+// Un-trash: clears deleted_at. Returns whether a trashed row was actually
+// restored (false = unknown id or not trashed), via RETURNING id.
+export async function restoreEntry(
+  id: string,
+  runner: QueryRunner = defaultRunner(),
+): Promise<boolean> {
+  const { text, values } = restoreEntrySql(id);
   const rows = await runner.query(text, values);
   return rows.length > 0;
 }

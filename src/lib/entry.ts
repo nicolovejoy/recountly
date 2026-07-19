@@ -69,6 +69,10 @@ export interface EntryRecord {
   // uses it to decide whether a short transcript still needs the expand
   // toggle, since photos only render when expanded.
   photoCount?: number;
+  // When the entry was trashed (soft-deleted). Only populated on rows read via
+  // getEntrySql/listTrashedSql that are actually trashed; undefined on live
+  // rows and pre-insert records.
+  deletedAt?: string;
 }
 
 // Returns a list of human-readable problems; empty means valid. A list (rather

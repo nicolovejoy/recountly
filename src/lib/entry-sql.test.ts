@@ -6,6 +6,8 @@ import {
   getEntrySql,
   deleteEntrySql,
   softDeleteEntrySql,
+  listTrashedSql,
+  restoreEntrySql,
   updateEnrichmentSql,
   listUnenrichedSql,
   rowToEntry,
@@ -160,6 +162,11 @@ describe("getEntrySql", () => {
     expect(q.text).toContain("WHERE id = $1");
     expect(q.values).toEqual(["abc"]);
   });
+
+  it("selects deleted_at so callers (purge) can tell trashed from live", () => {
+    const q = getEntrySql("abc");
+    expect(q.text).toContain("deleted_at");
+  });
 });
 
 describe("deleteEntrySql", () => {
@@ -175,6 +182,42 @@ describe("softDeleteEntrySql", () => {
     const q = softDeleteEntrySql("abc");
     expect(q.text).toBe(
       "UPDATE entries SET deleted_at = now(), updated_at = now() WHERE id = $1 AND deleted_at IS NULL RETURNING id",
+    );
+    expect(q.values).toEqual(["abc"]);
+  });
+});
+
+describe("listTrashedSql", () => {
+  it("selects only trashed rows, newest-trashed first, with a parameterized limit", () => {
+    const q = listTrashedSql(25);
+    expect(q.text).toContain("WHERE deleted_at IS NOT NULL");
+    expect(q.text).toContain("ORDER BY deleted_at DESC");
+    expect(q.text).toContain("LIMIT $1");
+    expect(q.values).toEqual([25]);
+  });
+
+  it("defaults the limit to 50", () => {
+    expect(listTrashedSql().values).toEqual([50]);
+  });
+
+  it("selects deleted_at alongside the shared column list", () => {
+    const q = listTrashedSql();
+    expect(q.text).toContain(", deleted_at,");
+  });
+
+  it("includes a photo_count subselect", () => {
+    const q = listTrashedSql();
+    expect(q.text).toContain(
+      "(SELECT count(*)::int FROM photos p WHERE p.entry_id = entries.id) AS photo_count",
+    );
+  });
+});
+
+describe("restoreEntrySql", () => {
+  it("un-trashes the entry (clears deleted_at, bumps updated_at), returning the id", () => {
+    const q = restoreEntrySql("abc");
+    expect(q.text).toBe(
+      "UPDATE entries SET deleted_at = NULL, updated_at = now() WHERE id = $1 AND deleted_at IS NOT NULL RETURNING id",
     );
     expect(q.values).toEqual(["abc"]);
   });
@@ -361,6 +404,28 @@ describe("rowToEntry", () => {
       audio_bytes: null,
     });
     expect(entry.photoCount).toBeUndefined();
+  });
+
+  it("maps deleted_at when present (trashed row) and leaves it undefined otherwise", () => {
+    const base = {
+      id: "01HX",
+      recorded_at: "2026-06-13T01:00:00.000Z",
+      created_at: "2026-06-13T01:00:05.000Z",
+      updated_at: "2026-06-13T01:00:05.000Z",
+      duration_seconds: 10,
+      transcript: "hello",
+      title: null,
+      tags: [],
+      audio_url: null,
+      audio_mime: null,
+      audio_bytes: null,
+    };
+    const trashed = rowToEntry({ ...base, deleted_at: new Date("2026-07-18T09:00:00.000Z") });
+    expect(trashed.deletedAt).toBe("2026-07-18T09:00:00.000Z");
+    const live = rowToEntry({ ...base, deleted_at: null });
+    expect(live.deletedAt).toBeUndefined();
+    const absent = rowToEntry(base);
+    expect(absent.deletedAt).toBeUndefined();
   });
 });
 

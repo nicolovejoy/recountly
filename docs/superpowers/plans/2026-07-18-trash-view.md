@@ -50,12 +50,12 @@ Node 20, vitest node env.
 - `emptyTrash({ runner?, delFn? }) → Promise<number>` — purge every trashed id, return count.
 
 **Steps:**
-- [ ] Write failing tests: SQL text/params for both builders; db fns via the existing
+- [x] Write failing tests: SQL text/params for both builders; db fns via the existing
   `fakeRunner`; purge order + guards + best-effort blob behavior via fake runner/delFn
   (assert photo-delete runs before entry-delete, and that a non-trashed id performs no
   deletes).
-- [ ] Implement; `pnpm test` green.
-- [ ] Commit: `feat: trash list/restore SQL + purge orchestration (#27)`
+- [x] Implement; `pnpm test` green.
+- [x] Commit: `feat: trash list/restore SQL + purge orchestration (#27)`
 
 ---
 
