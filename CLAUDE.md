@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Project status: physical-journal archive shipped (2026-07-18) — live on recountly.org, auth-gated (live transcription + editable transcript + persistence + Better Auth + full-text search + LLM enrichment + markdown import + journals/photos capture). ⚠️ One open bug: first phone entry-save didn't persist — see the bug box before Next Steps.
+## Project status: journal archive + save-feedback/trash hardening shipped (2026-07-18) — live on recountly.org, auth-gated (live transcription + editable transcript + persistence + Better Auth + full-text search + LLM enrichment + markdown import + journals/photos capture + entry trash). Phone save bug RESOLVED; org/nav redesign approved, doc on `docs/org-nav-design` branch.
 
 Live transcription works end-to-end: speak and words appear via a direct browser→OpenAI
 WebRTC connection (mic meter + in-app error surfacing in place). The transcript is now an
@@ -168,26 +168,43 @@ entries: decided **NO** (2026-07-16) — drawings get a spoken description as th
 which is also what makes them searchable. **211 vitest tests.** Built via two subagent-driven
 plans in `docs/superpowers/plans/` (fresh implementer + reviewer per task + final branch review).
 
-⚠️ **OPEN BUG from the first phone smoke test (2026-07-18) — investigate FIRST next session:**
-on iPhone Safari, journal creation persisted but the first real entry save never reached the DB
-(`entries` stayed at 26 rows, `photos` 0 — the POST failed or never fired; `pnpm db:introspect`
-confirmed). Prime suspect: **Done with an empty transcript is a silent no-op** in
-`RecorderClient.onStop` — if live transcription produced no text on the phone, nothing saves and
-nothing says so. That silence predates this feature but photos make it costly. Repro on the
-phone, and add loud feedback for the empty-transcript path either way.
+**Phone save bug RESOLVED + save/delete hardening shipped (2026-07-18 evening, PRs #22/#24/
+#25/#26 — all merged, deployed, phone-verified).** The "save never reached the DB" symptom was
+the documented silent no-op (empty transcript in `RecorderClient.onStop`) compounded by save
+status rendering below the fold on iPhone. Shipped: (1) tested `planSave` (`src/lib/save-plan.ts`)
+routes empty/too-large/save through one decision point, and save feedback is a **fixed top-of-
+viewport toast** (Finishing…/Saving…/Saved ✓ auto-clears/error with dismiss) — "Finishing…"
+also makes the 1.5s FLUSH_MS gap visible; deeper iOS hardening (pagehide flush, keepalive,
+interim-text merge) is **issue #23**. (2) Entry delete (issue #9) shipped then converted to
+**soft-delete trash** on owner request (`deleted_at`; list/search/enrichment exclude trashed;
+rows + blobs kept; hard-delete helpers retained for the future purge). (3) Journal integrity:
+`journalId` validated before blob upload (orphan-blob window closed), `PUT /api/journals/active`
+404s on unknown id via an EXISTS-guarded atomic UPDATE, superseded `entries_recorded_at_desc`
+index dropped (migrated). (4) Show more/less only renders when the transcript is measurably
+clamped or photos exist (`photo_count` in list/search payloads). **242 vitest tests.**
+⚠️ Process lesson: PR previews look like deploys — **smoke tests must first check the header
+build timestamp**; prod only redeploys on merge to main.
+
+**Org & navigation redesign APPROVED (2026-07-18, issues #27–#30).** Owner reviewed a clickable
+mockup and approved: Capture/Library/Search bottom tabs (entry list leaves Capture), journals-as-
+folders Library with Unfiled + Trash, reading-order journal view, **reading sessions as UI flow
+not schema** (nullable `entries.page_label` + sticky journal/date/page suggestion in Capture —
+supports half-page or multi-page chunks with 0..n photos each), trash as the only place with
+permanence (purge two confirms deep), `PATCH` move-entry, and search growing into the power tool
+**over time, not at launch** (URL-as-state + composable filter chips). Route-level integration
+tests are REQUIRED for these features. Design of record: `docs/organization-and-navigation.md`
+on branch **`docs/org-nav-design`** (pushed, unmerged). Build order: #27 trash view → #29 nav
+shell/Library → #28 move → capture polish → search increments.
 
 **Next Steps**:
-- **Debug the phone save failure** (bug box above) — first thing next session.
-- **Journal-reading session design (owner, 2026-07-18, next session's discussion):** reading a
-  physical journal is a *continuous* process — a sequence of pages, with sentences carrying over
-  page boundaries — and the data model + UI need to accommodate that flow (today each capture is
-  an isolated entry). Also wanted: **journal cover photo(s)** (front, maybe back) on the
-  `journals` row, and a **page-navigation rework** (the single scrolling page is creaking).
-  Design first; don't jump to schema.
-- Parked follow-ups from the branch reviews: journalId existence check before photo upload
-  (closes an orphan-blob window), `/api/journals/active` silently no-ops on a nonexistent id,
-  verify EXIF portrait orientation on iPhone, optimistic journal-switch UI, photo-fetch retry
-  after transient failure, drop the superseded `entries_recorded_at_desc` index.
+- **Merge `docs/org-nav-design`** (review the design doc on the mini), then build per its
+  order: **#27 trash view → #29 nav shell/Library/journal view → #28 move entries → capture
+  session polish (`page_label` + sticky) → search increments**. Route-level integration tests
+  + `docs/smoke-checklist.md` start with the first build PR.
+- **Issue #23** — iOS save-loss hardening (pagehide flush, `keepalive` fetch, merge interim
+  text on Done). The toast made the gap visible; this makes it safe.
+- Parked follow-ups still open: verify EXIF portrait orientation on iPhone, optimistic
+  journal-switch UI, photo-fetch retry after transient failure.
 - **Passkeys (WebAuthn) primary + email/password as break-glass fallback** (NOT SMS — rejected as
   weakest 2FA; NOT Sign in with Apple — needs $99 dev program). Better Auth `passkey()` plugin:
   add to `src/lib/auth.ts` (`rpID: "recountly.org"` + localhost), `passkeyClient()` in
@@ -200,8 +217,6 @@ phone, and add loud feedback for the empty-transcript path either way.
   both work in an iOS Safari PWA (same WebKit/origin). Capacitor wrapper deferred (complicates
   WebAuthn origin + needs Apple dev program; revisit only for background-audio / App Store). Open
   Q: passkeys+PWA in one branch or two (passkeys first).
-- **Issue #9** — DELETE/CRUD tooling (`DELETE /api/entries/[id]` + blob `del()` + `deleteEntry`
-  + UI button). Still the main functional gap: you can't delete an entry from the UI.
 - Optional: drop the 2 stray `entries` rows in byside's `neon-gray-coin` DB (owner passed).
 
 **Garm / multi-user: decided NO (2026-07-14).** recountly's `entries` will **not** get a
@@ -249,7 +264,7 @@ docs are archived under `docs/archive/` (historical only — trust `src/` + this
 - `pnpm build` — production build
 - `pnpm start` — serve the production build
 - `pnpm lint` — ESLint
-- `pnpm test` — Vitest (node env, pure-logic unit tests; 211 and counting)
+- `pnpm test` — Vitest (node env, pure-logic unit tests; 242 and counting)
 - `pnpm db:migrate` — apply `db/schema.sql` (entries) to `DATABASE_URL` in `.env.local`
 - `pnpm db:auth-migrate` — apply Better Auth's schema (user/session/account/verification)
 - `pnpm seed:user` — create the owner account: `SEED_EMAIL=… SEED_PASSWORD=… pnpm seed:user`
