@@ -24,6 +24,16 @@ multipart. What to check:
 - A photo-upload failure keeps the photo tray (photos are not best-effort); an audio-only
   hiccup still saves the transcript.
 
+### Durable save (#23, Phase B)
+
+- Speak, tap Done, and immediately lock the phone (or app-switch away) → the entry still
+  lands with the full transcript, including words spoken right before Done.
+- Background the app mid-recording (without tapping Done) → implicit Done: the entry saves
+  with everything said so far.
+- Airplane mode on → record → Done (save fails) → airplane mode off → reopen the app →
+  "Recovered 1 unsaved entry" toast; the entry appears exactly once, audio and photos
+  attached.
+
 ## Nav shell (#29)
 
 4. While recording (and while paused), the Library and Search tabs are disabled with

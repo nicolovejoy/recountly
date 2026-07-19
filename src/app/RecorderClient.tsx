@@ -239,6 +239,18 @@ export default function RecorderClient() {
   useEffect(() => {
     elapsedSecRef.current = elapsedSec;
   }, [elapsedSec]);
+  // iOS bfcache restore fires `pageshow`, not necessarily `visibilitychange`
+  // — without this, a page restored from bfcache after a flush could carry a
+  // stale "already fired" guard into its NEXT hide and silently skip that
+  // flush. Registered unconditionally (not gated on shouldFlushOnHide, unlike
+  // the effect below) so it's armed across the whole component lifetime.
+  useEffect(() => {
+    const onPageShow = () => {
+      flushFiredRef.current = false;
+    };
+    window.addEventListener("pageshow", onPageShow);
+    return () => window.removeEventListener("pageshow", onPageShow);
+  }, []);
   useEffect(() => {
     if (!shouldFlushOnHide(status, saveState)) return;
 
@@ -248,13 +260,23 @@ export default function RecorderClient() {
       if (flushFiredRef.current) return;
       flushFiredRef.current = true;
 
+      // Merge the interim tail FIRST when still capturing, before reading the
+      // editor: stop() is what delivers the not-yet-finalized tail (Task 7),
+      // and TranscriptEditor's append/getValue are synchronous DOM ops (see
+      // TranscriptEditor.tsx — uncontrolled textarea via ref), so the merged
+      // text is readable immediately after stop() returns. Reading the editor
+      // BEFORE stop() (the original bug) POSTs a transcript truncated at the
+      // last completed segment — and since the server upsert is
+      // transcript-first-write-wins, that truncation is PERMANENT.
+      const captureBusy = isCaptureBusy(status);
+      if (captureBusy) stop();
+
       const transcript = editorRef.current?.getValue().trim() ?? "";
       if (planSave(transcript).kind !== "empty") {
-        const durationSeconds = isCaptureBusy(status)
-          ? elapsedSecRef.current
-          : pendingDurationRef.current;
+        const durationSeconds = captureBusy ? elapsedSecRef.current : pendingDurationRef.current;
+        const id = getEntryId();
         const body = buildSaveBody({
-          id: getEntryId(),
+          id,
           transcript,
           durationSeconds,
           journalId: active?.id,
@@ -262,23 +284,47 @@ export default function RecorderClient() {
           audio: null,
           photos: [],
         });
+        const json = JSON.stringify(body);
+
+        // Persist a pending-save snapshot in PARALLEL with the POST (not
+        // awaited first): onStop's own put() runs off an async audioPromise
+        // continuation that pagehide gives no guarantee will run before the
+        // page is actually killed, so this flush must persist for itself too.
+        // audio: null — audio isn't finalized at flush time. If onStop's put()
+        // DOES still land later (the accelerated teardown below), it
+        // overwrites this same id with the full record including audio — so a
+        // killed page only ever loses audio on recovery, never the transcript
+        // or photos.
+        try {
+          void idbPendingStore.put({
+            id,
+            body,
+            audio: null,
+            photos: pendingPhotos.map((p) => ({ id: ulid(), blob: p.blob, mime: p.mime })),
+            createdAt: Date.now(),
+          });
+        } catch {
+          /* best-effort — a killed page can't be blocked on IndexedDB either */
+        }
+
         // Fire-and-forget: this is the emergency path itself, nothing left to
-        // fall back to if it fails, and there's no page left to show an error in.
+        // fall back to if it fails, and there's no page left to show an error
+        // in. Same keepalive-cap guard as onStop — some browsers silently
+        // reject an over-cap keepalive fetch outright.
         void fetch("/api/entries", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify(body),
-          keepalive: true,
+          body: json,
+          keepalive: withinKeepaliveCap(json),
         }).catch(() => {});
       }
 
       // Accelerate any pending session teardown: a live/paused/connecting
-      // session gets an implicit Done (skips the FLUSH_MS wait via
-      // forceFlush right after); a Done already in flight (status back to
-      // idle, saveState "finishing") just gets its pending flush timer run
-      // now instead of after FLUSH_MS. No-op in "saving" (the flush already
-      // fired earlier) — this call is a bonus, not the save itself.
-      if (isCaptureBusy(status)) stop();
+      // session already got its implicit Done above (stop()); a Done already
+      // in flight (status back to idle, saveState "finishing") just gets its
+      // pending flush timer run now instead of after FLUSH_MS. No-op in
+      // "saving" (the flush already fired earlier) — this call is a bonus,
+      // not the save itself.
       forceFlush();
     };
 
@@ -292,7 +338,7 @@ export default function RecorderClient() {
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("pagehide", fire);
     };
-  }, [status, saveState, active?.id, writtenDate, stop, forceFlush, getEntryId]);
+  }, [status, saveState, active?.id, writtenDate, stop, forceFlush, getEntryId, pendingPhotos]);
 
   // The one circular control's action is derived from status (single tested
   // source of truth — see primaryAction).

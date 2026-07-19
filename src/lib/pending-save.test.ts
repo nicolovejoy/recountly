@@ -113,6 +113,36 @@ describe("retryPending", () => {
     expect(store.remaining().map((r) => r.id)).toEqual(["01C"]);
   });
 
+  it("purges (deletes) a record on a 4xx response — it can never succeed on retry", async () => {
+    const store = fakeStore([makeRecord("01X")]);
+    const deps = depsWith({
+      // e.g. the entry's journal was deleted since the save was queued.
+      postSave: async () => ({ ok: false, status: 400 }),
+    });
+
+    const result = await retryPending(store, deps);
+
+    // Purged, not saved — must not count as recovered.
+    expect(result).toEqual({ recovered: 0 });
+    expect(store.remaining()).toEqual([]);
+  });
+
+  it("distinguishes 4xx (purge) from 5xx (keep) across a mixed batch", async () => {
+    const store = fakeStore([makeRecord("01Y"), makeRecord("01Z")]);
+    const deps = depsWith({
+      postSave: async (body) => {
+        if (body.id === "01Y") return { ok: false, status: 401 };
+        return { ok: false, status: 503 };
+      },
+    });
+
+    const result = await retryPending(store, deps);
+
+    expect(result).toEqual({ recovered: 0 });
+    // 01Y (4xx) purged; 01Z (5xx) kept for the next retry.
+    expect(store.remaining().map((r) => r.id)).toEqual(["01Z"]);
+  });
+
   it("deletes an already-landed record without duplicating the POST", async () => {
     // Simulates a save that landed in the DB but whose 201 ack never reached
     // the client (tab died mid-response). The re-POST hits the idempotent

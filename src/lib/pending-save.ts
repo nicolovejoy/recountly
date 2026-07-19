@@ -41,7 +41,11 @@ export interface RetryDeps {
 // response proving the row exists — the insert is ON CONFLICT, so a
 // landed-but-unacked save re-POSTs to a 201 with no duplicate). A record is
 // kept — for the next retry — on a network failure (uploadBlobs/postSave
-// throws) or a non-ok response (e.g. 5xx). Returns how many were recovered.
+// throws) or a 5xx response. A 4xx response (e.g. the entry's journal was
+// deleted since it was queued) can never succeed on retry, so that record is
+// purged instead of being retried forever on every app open — it does NOT
+// count toward `recovered` (it wasn't saved, just given up on). Returns how
+// many were recovered.
 export async function retryPending(store: PendingStore, deps: RetryDeps): Promise<{ recovered: number }> {
   const records = await store.getAll();
   let recovered = 0;
@@ -57,8 +61,10 @@ export async function retryPending(store: PendingStore, deps: RetryDeps): Promis
       if (res.ok) {
         await store.delete(rec.id);
         recovered += 1;
+      } else if (res.status >= 400 && res.status < 500) {
+        await store.delete(rec.id);
       }
-      // else: non-ok response (e.g. 5xx) — keep the record for next retry.
+      // else: 5xx — keep the record for next retry.
     } catch {
       // Blob re-upload or postSave network failure — keep the record.
     }
