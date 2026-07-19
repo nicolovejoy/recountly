@@ -117,6 +117,12 @@ export function useRecorder(opts: {
     onSegmentRef.current = opts.onSegment;
     onStopRef.current = opts.onStop;
   });
+  // Mirrors `interim` state so stop() can read the latest value imperatively
+  // without depending on (and being re-created on every keystroke by) `interim`.
+  const interimRef = useRef("");
+  useEffect(() => {
+    interimRef.current = interim;
+  }, [interim]);
 
   const pushLog = useCallback((type: string, text?: string) => {
     logIdRef.current += 1;
@@ -421,6 +427,12 @@ export function useRecorder(opts: {
     // commit.
     commitBuffer();
     setStatus((s) => transition(s, "DONE"));
+    // Deliver the not-yet-finalized tail now, before teardown, so it lands in
+    // the editor (and the saved transcript) instead of vanishing if teardown
+    // beats the real `completed` event. Tradeoff: if `completed` still arrives
+    // during the FLUSH_MS window below, the tail can double-append — accepted
+    // for v1 (losing speech is worse than a duplicated tail); dedup deferred.
+    if (interimRef.current) onSegmentRef.current(interimRef.current);
     setInterim("");
     // Snapshot the final duration before resetTimer zeroes it.
     const durationSeconds = totalElapsedSec(
