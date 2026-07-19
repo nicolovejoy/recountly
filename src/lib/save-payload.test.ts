@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildSaveBody, parseSaveBody } from "./save-payload";
+import { buildSaveBody, parseSaveBody, withinKeepaliveCap } from "./save-payload";
 
 const audio = { pathname: "audio/e1.webm", mime: "audio/webm", bytes: 2_000, complete: true };
 const photo = { id: "p1", pathname: "photos/p1.jpg", mime: "image/jpeg", bytes: 5_000 };
@@ -168,5 +168,20 @@ describe("parseSaveBody", () => {
     expect(parsed.ok).toBe(false);
     if (parsed.ok) return;
     expect(parsed.problems.length).toBeGreaterThanOrEqual(3);
+  });
+});
+
+describe("withinKeepaliveCap", () => {
+  it("is true for a small body", () => {
+    expect(withinKeepaliveCap(JSON.stringify({ transcript: "hi" }))).toBe(true);
+  });
+
+  it("is false once the byte length reaches the cap", () => {
+    expect(withinKeepaliveCap("x".repeat(60_000))).toBe(false);
+  });
+
+  it("counts bytes, not chars (multibyte runs longer)", () => {
+    // 20_000 emoji × 4 bytes each = 80_000 bytes > cap, though only 20_000 code units.
+    expect(withinKeepaliveCap("😀".repeat(20_000))).toBe(false);
   });
 });

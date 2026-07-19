@@ -58,6 +58,16 @@ export function buildSaveBody(input: {
   return body;
 }
 
+// The keepalive fetch cap is 64 KB; some browsers reject an over-cap keepalive
+// request outright, so the Done save only sets keepalive when the serialized
+// body is safely under it (a plain fetch beats a thrown one). Measured in BYTES
+// (a multibyte transcript is longer than its char count), with headroom.
+const KEEPALIVE_CAP_BYTES = 60_000;
+
+export function withinKeepaliveCap(json: string): boolean {
+  return new TextEncoder().encode(json).length < KEEPALIVE_CAP_BYTES;
+}
+
 // Route side: validate an untrusted JSON body into an EntryInput + blob refs.
 // House style — a problems[] list rather than throw-on-first (mirrors
 // validateEntryInput), so the route can report everything wrong at once.

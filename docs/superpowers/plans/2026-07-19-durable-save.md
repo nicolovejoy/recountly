@@ -347,7 +347,7 @@ enrichment is covered by `enrich.test.ts`.)
   task keeps the current in-memory flow so Phase A ships independently.
 
 **Steps:**
-- [ ] Implement the onStop rewrite; delete `entry-form.ts` + test. `pnpm test && pnpm lint
+- [x] Implement the onStop rewrite; delete `entry-form.ts` + test. `pnpm test && pnpm lint
   && pnpm build` green.
 - [ ] `pnpm dev` real-speech smoke: record → Done → Saved ✓; entry appears in Library
   reading order + Search; audio plays through `/api/audio/[id]`; a photo entry saves and

@@ -7,8 +7,11 @@
 // Header chrome (brand + build stamp) and the tab bar live in (tabs)/layout.
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { upload } from "@vercel/blob/client";
 import { primaryAction, guardBusy, type SaveState } from "@/lib/recorder-state";
-import { buildEntryFormData } from "@/lib/entry-form";
+import { uploadEntryBlobs } from "@/lib/blob-upload";
+import { buildSaveBody, withinKeepaliveCap } from "@/lib/save-payload";
+import { ulid } from "@/lib/ulid";
 import { downscalePhoto } from "@/lib/image";
 import { writtenAtIso } from "@/lib/written-at";
 import { planSave } from "@/lib/save-plan";
@@ -75,13 +78,13 @@ export default function RecorderClient() {
     });
   }, []);
 
-  // Done's save trigger: read the transcript the editor holds, attach the
-  // best-effort audio plus the journal context and verified page photos, POST
-  // it, then refresh the list. An empty transcript is a no-op. Audio failing
-  // is fine; photos are NOT best-effort — the route fails the save if one
-  // can't be stored, and we keep the tray so the user retries.
+  // Done's save trigger (issue #23 client-direct flow): mint the entry id +
+  // per-photo ids, upload the blobs STRAIGHT to Vercel Blob (audio best-effort,
+  // photos NOT — a photo throw aborts and keeps the tray), then POST a small
+  // JSON body of the refs. keepalive when the body fits the 64 KB cap so a
+  // backgrounded tab still lands the save. An empty transcript is a no-op.
   const onStop = useCallback(
-    (result: RecordingResult) => {
+    async (result: RecordingResult) => {
       const transcript = editorRef.current?.getValue().trim() ?? "";
       if (planSave(transcript).kind === "empty") {
         setSaveError(
@@ -92,35 +95,59 @@ export default function RecorderClient() {
       }
       setSaveState("saving");
       setSaveError(null);
-      const body = buildEntryFormData({
+
+      const id = ulid();
+      const photos = pendingPhotos.map((p) => ({ id: ulid(), blob: p.blob, mime: p.mime }));
+      const audio = result.audioBlob
+        ? {
+            blob: result.audioBlob,
+            mime: result.audioMime ?? "audio/webm",
+            complete: result.audioComplete ?? true,
+          }
+        : null;
+
+      let uploaded;
+      try {
+        uploaded = await uploadEntryBlobs({ entryId: id, audio, photos }, upload);
+      } catch (err) {
+        // Photos are not best-effort: keep the tray so the user can retry Done.
+        setSaveError(
+          `Photo upload failed — your photos are still attached; tap Done again. (${
+            err instanceof Error ? err.message : String(err)
+          })`,
+        );
+        setSaveState("error");
+        return;
+      }
+
+      const body = buildSaveBody({
+        id,
         transcript,
         durationSeconds: result.durationSeconds,
-        audio: result.audioBlob
-          ? {
-              blob: result.audioBlob,
-              mime: result.audioMime ?? "audio/webm",
-              complete: result.audioComplete ?? true,
-            }
-          : null,
         journalId: active?.id,
         writtenAt: writtenAtIso(writtenDate),
-        photos: pendingPhotos.map((p) => ({ blob: p.blob, mime: p.mime })),
+        audio: uploaded.audio,
+        photos: uploaded.photos,
       });
-      fetch("/api/entries", { method: "POST", body })
-        .then(async (res) => {
-          if (!res.ok) throw new Error(`save failed (${res.status}): ${await res.text()}`);
-        })
-        .then(() => {
-          editorRef.current?.clear();
-          pendingPhotos.forEach((p) => URL.revokeObjectURL(p.previewUrl));
-          setPendingPhotos([]);
-          setWrittenDate("");
-          setSaveState("saved");
-        })
-        .catch((err) => {
-          setSaveError(err instanceof Error ? err.message : String(err));
-          setSaveState("error");
+      const json = JSON.stringify(body);
+
+      try {
+        const res = await fetch("/api/entries", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: json,
+          keepalive: withinKeepaliveCap(json),
         });
+        if (!res.ok) throw new Error(`save failed (${res.status}): ${await res.text()}`);
+        editorRef.current?.clear();
+        pendingPhotos.forEach((p) => URL.revokeObjectURL(p.previewUrl));
+        setPendingPhotos([]);
+        setWrittenDate("");
+        setSaveState("saved");
+      } catch (err) {
+        setSaveError(err instanceof Error ? err.message : String(err));
+        setSaveState("error");
+      }
     },
     [active?.id, writtenDate, pendingPhotos],
   );
