@@ -32,8 +32,10 @@ ALTER TABLE entries ADD COLUMN IF NOT EXISTS summary          text;
 ALTER TABLE entries ADD COLUMN IF NOT EXISTS enriched_at      timestamptz;
 ALTER TABLE entries ADD COLUMN IF NOT EXISTS enrichment_model text;
 
--- Newest-first entry list (Phase 2) — order by when it was spoken.
-CREATE INDEX IF NOT EXISTS entries_recorded_at_desc ON entries (recorded_at DESC);
+-- entries_recorded_at_desc (Phase 2, order by recorded_at DESC) is superseded
+-- by entries_effective_at_desc below (coalesce(written_at, recorded_at) DESC) —
+-- drop it; DROP INDEX IF EXISTS is idempotent so re-running this file is safe.
+DROP INDEX IF EXISTS entries_recorded_at_desc;
 
 -- Phase 3 full-text search. A STORED generated column keeps the tsvector in
 -- lockstep with title+transcript automatically (no trigger), and the GIN index
