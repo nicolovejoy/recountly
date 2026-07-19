@@ -8,13 +8,15 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { upload } from "@vercel/blob/client";
-import { primaryAction, guardBusy, type SaveState } from "@/lib/recorder-state";
+import { primaryAction, guardBusy, isCaptureBusy, type SaveState } from "@/lib/recorder-state";
+import { shouldFlushOnHide } from "@/lib/lifecycle-flush";
 import { uploadEntryBlobs } from "@/lib/blob-upload";
 import { buildSaveBody, withinKeepaliveCap } from "@/lib/save-payload";
 import { ulid } from "@/lib/ulid";
 import { downscalePhoto } from "@/lib/image";
 import { writtenAtIso } from "@/lib/written-at";
 import { planSave } from "@/lib/save-plan";
+import { idbPendingStore } from "./idb-pending";
 import { useRecorder, type RecordingResult } from "./useRecorder";
 import { useJournals } from "./useJournals";
 import { useCaptureGuard } from "./CaptureGuard";
@@ -78,6 +80,26 @@ export default function RecorderClient() {
     });
   }, []);
 
+  // The entry id, shared across the normal Done save AND a lifecycle flush
+  // (issue #23 Task 8 — see the pagehide/visibilitychange effect below): a
+  // flush that fires before Done finishes must reuse the SAME id so its
+  // transcript-only insert and the later full-refs save land on one row
+  // (idempotent upsert — src/lib/entry-sql.ts). Minted lazily by whichever
+  // fires first; cleared only once a save fully succeeds.
+  const entryIdRef = useRef<string | null>(null);
+  const getEntryId = useCallback(() => {
+    if (!entryIdRef.current) entryIdRef.current = ulid();
+    return entryIdRef.current;
+  }, []);
+  // elapsedSec snapshot taken the instant Done is tapped — useRecorder's
+  // stop() zeroes elapsedSec synchronously (well before a lifecycle flush
+  // might fire during the finishing/saving window), so the flush path needs
+  // its own copy of "how long was this take" for that window.
+  const pendingDurationRef = useRef(0);
+  // "Already fired" guard for the lifecycle-flush effect below — pagehide and
+  // visibilitychange(hidden) commonly fire together for one hide episode.
+  const flushFiredRef = useRef(false);
+
   // Done's save trigger (issue #23 client-direct flow): mint the entry id +
   // per-photo ids, upload the blobs STRAIGHT to Vercel Blob (audio best-effort,
   // photos NOT — a photo throw aborts and keeps the tray), then POST a small
@@ -96,7 +118,8 @@ export default function RecorderClient() {
       setSaveState("saving");
       setSaveError(null);
 
-      const id = ulid();
+      const id = getEntryId();
+      const journalId = active?.id;
       const photos = pendingPhotos.map((p) => ({ id: ulid(), blob: p.blob, mime: p.mime }));
       const audio = result.audioBlob
         ? {
@@ -105,6 +128,32 @@ export default function RecorderClient() {
             complete: result.audioComplete ?? true,
           }
         : null;
+
+      // Issue #23 Task 9: persist a durable snapshot to IndexedDB BEFORE
+      // starting uploads, so a crash/discard between now and the confirmed
+      // full-refs 201 below leaves a record PendingSaveRecovery can retry on
+      // next open. audio/photos fields are placeholders — retryPending fills
+      // them in from the re-uploaded refs; only the raw Blobs above matter.
+      // Best-effort: IndexedDB being unavailable must never block a save.
+      try {
+        await idbPendingStore.put({
+          id,
+          body: buildSaveBody({
+            id,
+            transcript,
+            durationSeconds: result.durationSeconds,
+            journalId,
+            writtenAt: writtenAtIso(writtenDate),
+            audio: null,
+            photos: [],
+          }),
+          audio,
+          photos,
+          createdAt: Date.now(),
+        });
+      } catch {
+        /* IndexedDB unavailable — proceed without the durability net */
+      }
 
       let uploaded;
       try {
@@ -144,19 +193,152 @@ export default function RecorderClient() {
         setPendingPhotos([]);
         setWrittenDate("");
         setSaveState("saved");
+        // Fully landed — the next recording (or a retry after a later error)
+        // gets a fresh id / flush guard.
+        entryIdRef.current = null;
+        flushFiredRef.current = false;
+        // This is the confirmed FULL-REFS 201 (audio/photo refs included) —
+        // the only response that should clear the pending-save record. The
+        // Task 8 lifecycle-flush POST is transcript-only and never reaches
+        // here, so it can never delete a record that still needs its blobs
+        // attached. Best-effort cleanup — a failure just leaves the record
+        // for PendingSaveRecovery to clean up (harmlessly) on next open.
+        try {
+          await idbPendingStore.delete(id);
+        } catch {
+          /* best-effort cleanup */
+        }
       } catch (err) {
         setSaveError(err instanceof Error ? err.message : String(err));
         setSaveState("error");
       }
     },
-    [active?.id, writtenDate, pendingPhotos],
+    [active?.id, writtenDate, pendingPhotos, getEntryId],
   );
 
-  const { status, elapsedSec, interim, errorMsg, log, start, pause, resume, stop, meterRef } =
+  const { status, elapsedSec, interim, errorMsg, log, start, pause, resume, stop, forceFlush, meterRef } =
     useRecorder({
       onSegment: (segment) => editorRef.current?.append(segment),
       onStop,
     });
+
+  // Issue #23 Task 8 — lifecycle flush: while a capture session is in flight
+  // OR a save is between Done and the POST settling, a backgrounded/discarded
+  // tab can't be trusted to keep a setTimeout or an in-flight fetch(audio
+  // upload) alive. Register pagehide/visibilitychange listeners for exactly
+  // that window (shouldFlushOnHide) and, on fire, force out a TRANSCRIPT-ONLY
+  // keepalive JSON save (audio: null, photos: []) — blob uploads can't be
+  // trusted to finish in a hidden tab, and posting refs to blobs that never
+  // landed would create rows pointing at nothing. The audio/photos still land
+  // later via the normal path (accelerated below) or, once built, Task 9's
+  // IndexedDB recovery — this flush's insert is NOT deleted by that later
+  // path, only replaced/attached onto via the Task 1 idempotent upsert.
+  // Mirrors elapsedSec so fire() (below) reads a live value without the
+  // listener-registration effect re-running on every 250ms timer tick.
+  const elapsedSecRef = useRef(elapsedSec);
+  useEffect(() => {
+    elapsedSecRef.current = elapsedSec;
+  }, [elapsedSec]);
+  // iOS bfcache restore fires `pageshow`, not necessarily `visibilitychange`
+  // — without this, a page restored from bfcache after a flush could carry a
+  // stale "already fired" guard into its NEXT hide and silently skip that
+  // flush. Registered unconditionally (not gated on shouldFlushOnHide, unlike
+  // the effect below) so it's armed across the whole component lifetime.
+  useEffect(() => {
+    const onPageShow = () => {
+      flushFiredRef.current = false;
+    };
+    window.addEventListener("pageshow", onPageShow);
+    return () => window.removeEventListener("pageshow", onPageShow);
+  }, []);
+  useEffect(() => {
+    if (!shouldFlushOnHide(status, saveState)) return;
+
+    const fire = () => {
+      // "Already fired" guard: pagehide and visibilitychange(hidden) commonly
+      // fire together for one hide episode — only act once per episode.
+      if (flushFiredRef.current) return;
+      flushFiredRef.current = true;
+
+      // Merge the interim tail FIRST when still capturing, before reading the
+      // editor: stop() is what delivers the not-yet-finalized tail (Task 7),
+      // and TranscriptEditor's append/getValue are synchronous DOM ops (see
+      // TranscriptEditor.tsx — uncontrolled textarea via ref), so the merged
+      // text is readable immediately after stop() returns. Reading the editor
+      // BEFORE stop() (the original bug) POSTs a transcript truncated at the
+      // last completed segment — and since the server upsert is
+      // transcript-first-write-wins, that truncation is PERMANENT.
+      const captureBusy = isCaptureBusy(status);
+      if (captureBusy) stop();
+
+      const transcript = editorRef.current?.getValue().trim() ?? "";
+      if (planSave(transcript).kind !== "empty") {
+        const durationSeconds = captureBusy ? elapsedSecRef.current : pendingDurationRef.current;
+        const id = getEntryId();
+        const body = buildSaveBody({
+          id,
+          transcript,
+          durationSeconds,
+          journalId: active?.id,
+          writtenAt: writtenAtIso(writtenDate),
+          audio: null,
+          photos: [],
+        });
+        const json = JSON.stringify(body);
+
+        // Persist a pending-save snapshot in PARALLEL with the POST (not
+        // awaited first): onStop's own put() runs off an async audioPromise
+        // continuation that pagehide gives no guarantee will run before the
+        // page is actually killed, so this flush must persist for itself too.
+        // audio: null — audio isn't finalized at flush time. If onStop's put()
+        // DOES still land later (the accelerated teardown below), it
+        // overwrites this same id with the full record including audio — so a
+        // killed page only ever loses audio on recovery, never the transcript
+        // or photos.
+        try {
+          void idbPendingStore.put({
+            id,
+            body,
+            audio: null,
+            photos: pendingPhotos.map((p) => ({ id: ulid(), blob: p.blob, mime: p.mime })),
+            createdAt: Date.now(),
+          });
+        } catch {
+          /* best-effort — a killed page can't be blocked on IndexedDB either */
+        }
+
+        // Fire-and-forget: this is the emergency path itself, nothing left to
+        // fall back to if it fails, and there's no page left to show an error
+        // in. Same keepalive-cap guard as onStop — some browsers silently
+        // reject an over-cap keepalive fetch outright.
+        void fetch("/api/entries", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: json,
+          keepalive: withinKeepaliveCap(json),
+        }).catch(() => {});
+      }
+
+      // Accelerate any pending session teardown: a live/paused/connecting
+      // session already got its implicit Done above (stop()); a Done already
+      // in flight (status back to idle, saveState "finishing") just gets its
+      // pending flush timer run now instead of after FLUSH_MS. No-op in
+      // "saving" (the flush already fired earlier) — this call is a bonus,
+      // not the save itself.
+      forceFlush();
+    };
+
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") fire();
+      else flushFiredRef.current = false; // re-arm for the next hide episode
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("pagehide", fire);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("pagehide", fire);
+    };
+  }, [status, saveState, active?.id, writtenDate, stop, forceFlush, getEntryId, pendingPhotos]);
 
   // The one circular control's action is derived from status (single tested
   // source of truth — see primaryAction).
@@ -215,6 +397,10 @@ export default function RecorderClient() {
         {inSession && (
           <button
             onClick={() => {
+              // Snapshot before stop() zeroes elapsedSec — the lifecycle
+              // flush (issue #23 Task 8) needs this if it fires during the
+              // finishing/saving window that follows.
+              pendingDurationRef.current = elapsedSec;
               setSaveState("finishing");
               stop();
             }}

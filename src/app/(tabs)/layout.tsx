@@ -6,6 +6,7 @@
 
 import BrandLamp from "../BrandLamp";
 import { CaptureGuardProvider } from "../CaptureGuard";
+import PendingSaveRecovery from "../PendingSaveRecovery";
 import TabBar from "../TabBar";
 
 // Inlined at build time from next.config.ts ("Mar 4, 2:37 pm", Pacific).
@@ -18,6 +19,7 @@ export default function TabsLayout({
 }>) {
   return (
     <CaptureGuardProvider>
+      <PendingSaveRecovery />
       {/* pb-28 keeps the fixed tab bar from covering page content, with room
           for the busy-hint line + safe-area inset. */}
       <main className="mx-auto flex min-h-full w-full max-w-2xl flex-1 flex-col gap-6 px-5 py-8 pb-28">
