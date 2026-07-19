@@ -494,3 +494,58 @@ describe("searchEntriesSql effective-date + journal filter", () => {
     expect(q.values).toEqual(["cabin", "01JRNL", "1994-01-01", 50]);
   });
 });
+
+describe("searchEntriesSql reading order + unfiled (issue #29)", () => {
+  it("sort: 'reading' orders oldest-effective-first with a recorded_at tiebreak", () => {
+    const q = searchEntriesSql({ journalId: "01JRNL", sort: "reading", limit: 200 });
+    expect(q.text).toContain(
+      "ORDER BY coalesce(written_at, recorded_at) ASC, recorded_at ASC",
+    );
+    expect(q.values).toEqual(["01JRNL", 200]);
+  });
+
+  it("sort: 'reading' overrides the rank expression even when a query is set", () => {
+    const q = searchEntriesSql({ query: "cabin", sort: "reading" });
+    expect(q.text).toContain("transcript_tsv @@ websearch_to_tsquery('english', $1)");
+    expect(q.text).not.toContain("ts_rank");
+    expect(q.text).toContain(
+      "ORDER BY coalesce(written_at, recorded_at) ASC, recorded_at ASC",
+    );
+    expect(q.values).toEqual(["cabin", 50]);
+  });
+
+  it("absent and 'newest' sort produce the existing SQL byte-for-byte", () => {
+    expect(searchEntriesSql({ sort: "newest" })).toEqual(searchEntriesSql({}));
+    expect(searchEntriesSql({ query: "walk", sort: "newest" })).toEqual(
+      searchEntriesSql({ query: "walk" }),
+    );
+  });
+
+  it("keeps placeholders sequential with journalId + dates in reading order", () => {
+    const q = searchEntriesSql({
+      journalId: "01JRNL",
+      from: "1994-01-01",
+      to: "1994-12-31",
+      sort: "reading",
+    });
+    expect(q.text).toContain("journal_id = $1");
+    expect(q.text).toContain("coalesce(written_at, recorded_at) >= $2::date");
+    expect(q.text).toContain("coalesce(written_at, recorded_at) < ($3::date + 1)");
+    expect(q.text).toContain("LIMIT $4");
+    expect(q.values).toEqual(["01JRNL", "1994-01-01", "1994-12-31", 50]);
+  });
+
+  it("unfiled adds a bare journal_id IS NULL clause without consuming a placeholder", () => {
+    const q = searchEntriesSql({ unfiled: true });
+    expect(q.text).toContain("journal_id IS NULL");
+    expect(q.text).toContain("LIMIT $1");
+    expect(q.values).toEqual([50]);
+  });
+
+  it("journalId wins over unfiled when both are set", () => {
+    const q = searchEntriesSql({ unfiled: true, journalId: "01JRNL" });
+    expect(q.text).not.toContain("journal_id IS NULL");
+    expect(q.text).toContain("journal_id = $1");
+    expect(q.values).toEqual(["01JRNL", 50]);
+  });
+});

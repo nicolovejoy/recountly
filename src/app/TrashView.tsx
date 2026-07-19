@@ -1,13 +1,13 @@
 "use client";
 
-// Trash view (issue #27). Fetches GET /api/entries/trash and renders trashed
-// entries (title/summary/date + trashed date — no photo/audio expansion in v1)
-// with per-card Restore / Delete forever plus a header-level Empty trash.
-// Restore bumps the entry-list reload key (via onRestored) so the entry
-// reappears when the user switches back. RecorderClient swaps this in for
-// EntryList via local toggle state; the #29 tab bar replaces that later.
+// Trash view (issue #27), routed at /library/trash (issue #29). Fetches
+// GET /api/entries/trash and renders trashed entries (title/summary/date +
+// trashed date — no photo/audio expansion in v1) with per-card Restore /
+// Delete forever plus a header-level Empty trash. Restore just removes the
+// row here — Library/Search refetch on mount when next visited.
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { formatElapsed } from "@/lib/elapsed";
 import type { EntryRecord } from "@/lib/entry";
 
@@ -20,13 +20,7 @@ function entryName(e: EntryRecord): string {
   return e.title ?? formatWhen(e.recordedAt);
 }
 
-export default function TrashView({
-  onBack,
-  onRestored,
-}: {
-  onBack: () => void;
-  onRestored: () => void;
-}) {
+export default function TrashView() {
   const [entries, setEntries] = useState<EntryRecord[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<{ id: string; kind: "restore" | "purge" } | null>(null);
@@ -61,7 +55,6 @@ export default function TrashView({
       const res = await fetch(`/api/entries/${id}/restore`, { method: "POST" });
       if (!res.ok) throw new Error(`restore route ${res.status}`);
       setEntries((prev) => prev?.filter((e) => e.id !== id) ?? prev);
-      onRestored();
     } catch (err) {
       setActionError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -130,13 +123,12 @@ export default function TrashView({
               {emptying ? "Emptying…" : "Empty trash"}
             </button>
           )}
-          <button
-            type="button"
-            onClick={onBack}
+          <Link
+            href="/library"
             className="text-xs text-foreground/40 hover:text-foreground/70"
           >
-            ← Entries
-          </button>
+            ← Library
+          </Link>
         </span>
       </div>
 

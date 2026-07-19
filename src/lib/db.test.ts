@@ -14,6 +14,8 @@ import {
   listJournals,
   getJournal,
   setActiveJournal,
+  listJournalSummaries,
+  countUnfiledEntries,
   insertPhoto,
   listPhotosByEntry,
   getPhoto,
@@ -291,6 +293,48 @@ describe("journal data access", () => {
   it("getJournal returns null when no row matches", async () => {
     const { runner } = fakeRunner([]);
     expect(await getJournal("nope", runner)).toBeNull();
+  });
+});
+
+describe("journal summaries data access (issue #29)", () => {
+  it("listJournalSummaries runs the aggregate SELECT and maps rows", async () => {
+    const { runner, calls } = fakeRunner([
+      {
+        id: "01JRNL",
+        label: "Red notebook 1994",
+        active: true,
+        created_at: "2026-07-16T10:00:00.000Z",
+        entry_count: 2,
+        first_at: "1994-03-02T00:00:00.000Z",
+        last_at: "1995-06-01T00:00:00.000Z",
+      },
+    ]);
+    const out = await listJournalSummaries(runner);
+    expect(calls[0].text).toContain(
+      "LEFT JOIN entries e ON e.journal_id = j.id AND e.deleted_at IS NULL",
+    );
+    expect(calls[0].values).toEqual([]);
+    expect(out).toEqual([
+      {
+        id: "01JRNL",
+        label: "Red notebook 1994",
+        active: true,
+        createdAt: "2026-07-16T10:00:00.000Z",
+        entryCount: 2,
+        firstEntryAt: "1994-03-02T00:00:00.000Z",
+        lastEntryAt: "1995-06-01T00:00:00.000Z",
+      },
+    ]);
+  });
+
+  it("countUnfiledEntries runs the count SELECT and returns a number", async () => {
+    const { runner, calls } = fakeRunner([{ unfiled: "3" }]);
+    const out = await countUnfiledEntries(runner);
+    expect(calls[0].text).toContain(
+      "WHERE journal_id IS NULL AND deleted_at IS NULL",
+    );
+    expect(calls[0].values).toEqual([]);
+    expect(out).toBe(3);
   });
 });
 

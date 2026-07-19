@@ -67,3 +67,82 @@ describe("primaryAction", () => {
     expect(primaryAction(status)).toBe(action);
   });
 });
+
+// isCaptureBusy feeds the #29 tab-bar capture guard: while a session is in
+// flight (connecting/live/paused), navigating away would unmount the recorder
+// and kill the session, so the other tabs are disabled.
+import { isCaptureBusy } from "./recorder-state";
+
+describe("isCaptureBusy", () => {
+  it.each([
+    ["idle", false],
+    ["connecting", true],
+    ["live", true],
+    ["paused", true],
+    ["error", false],
+  ] as const)("%s → %s", (status, busy) => {
+    expect(isCaptureBusy(status)).toBe(busy);
+  });
+
+  it("covers every status", () => {
+    // Exhaustiveness: a new status added to the machine must be classified.
+    for (const status of RECORDER_STATUSES) {
+      expect(typeof isCaptureBusy(status)).toBe("boolean");
+    }
+  });
+});
+
+// isSaveBusy extends the #29 guard to the save pipeline: between Done and the
+// POST settling ("finishing"/"saving"), navigating away unmounts the recorder
+// page and silently loses a failed save's transcript. "error" is NOT busy —
+// the failure toast is visible by then, so leaving is an informed choice, and
+// disabling tabs on error would trap the user on the capture page.
+import { isSaveBusy, guardBusy, SAVE_STATES } from "./recorder-state";
+
+describe("isSaveBusy", () => {
+  it.each([
+    ["idle", false],
+    ["finishing", true],
+    ["saving", true],
+    ["saved", false],
+    ["error", false],
+  ] as const)("%s → %s", (saveState, busy) => {
+    expect(isSaveBusy(saveState)).toBe(busy);
+  });
+
+  it("covers every save state", () => {
+    // Exhaustiveness: a new save state must be classified.
+    for (const saveState of SAVE_STATES) {
+      expect(typeof isSaveBusy(saveState)).toBe("boolean");
+    }
+  });
+});
+
+// guardBusy is what the capture-guard effect actually feeds the tab bar: busy
+// if EITHER the session or a save is in flight.
+describe("guardBusy", () => {
+  it("is busy when only the session is in flight", () => {
+    expect(guardBusy("live", "idle")).toBe(true);
+  });
+
+  it("is busy when only a save is in flight", () => {
+    expect(guardBusy("idle", "finishing")).toBe(true);
+    expect(guardBusy("idle", "saving")).toBe(true);
+  });
+
+  it("is idle when neither is in flight", () => {
+    expect(guardBusy("idle", "idle")).toBe(false);
+    expect(guardBusy("idle", "saved")).toBe(false);
+    expect(guardBusy("error", "error")).toBe(false);
+  });
+
+  it("matches isCaptureBusy || isSaveBusy over the full product", () => {
+    for (const status of RECORDER_STATUSES) {
+      for (const saveState of SAVE_STATES) {
+        expect(guardBusy(status, saveState), `${status} × ${saveState}`).toBe(
+          isCaptureBusy(status) || isSaveBusy(saveState),
+        );
+      }
+    }
+  });
+});

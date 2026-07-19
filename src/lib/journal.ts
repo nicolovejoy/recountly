@@ -65,6 +65,52 @@ export function setActiveJournalSql(id: string | null): SqlQuery {
   };
 }
 
+// Library page (issue #29): one row per journal with live-entry aggregates.
+// The deleted_at filter lives in the JOIN condition — not WHERE — so journals
+// with zero live entries still appear (with entry_count 0 and null dates).
+export interface JournalSummary {
+  id: string;
+  label: string;
+  active: boolean;
+  createdAt: string;
+  entryCount: number; // live entries only (deleted_at IS NULL)
+  firstEntryAt: string | null; // min effective date; null when entryCount is 0
+  lastEntryAt: string | null; // max effective date
+}
+
+export function journalSummariesSql(): SqlQuery {
+  return {
+    text:
+      "SELECT j.id, j.label, j.active, j.created_at, " +
+      "count(e.id)::int AS entry_count, " +
+      "min(coalesce(e.written_at, e.recorded_at)) AS first_at, " +
+      "max(coalesce(e.written_at, e.recorded_at)) AS last_at " +
+      "FROM journals j LEFT JOIN entries e ON e.journal_id = j.id AND e.deleted_at IS NULL " +
+      "GROUP BY j.id, j.label, j.active, j.created_at " +
+      "ORDER BY j.active DESC, j.created_at DESC",
+    values: [],
+  };
+}
+
+export function unfiledCountSql(): SqlQuery {
+  return {
+    text: "SELECT count(*)::int AS unfiled FROM entries WHERE journal_id IS NULL AND deleted_at IS NULL",
+    values: [],
+  };
+}
+
+export function rowToJournalSummary(row: Record<string, unknown>): JournalSummary {
+  return {
+    id: String(row.id),
+    label: String(row.label),
+    active: Boolean(row.active),
+    createdAt: toIso(row.created_at),
+    entryCount: Number(row.entry_count),
+    firstEntryAt: row.first_at == null ? null : toIso(row.first_at),
+    lastEntryAt: row.last_at == null ? null : toIso(row.last_at),
+  };
+}
+
 export function rowToJournal(row: Record<string, unknown>): JournalRecord {
   return {
     id: String(row.id),
