@@ -6,16 +6,24 @@
 // entry to learn its mime, fetches the private blob server-side with the
 // BLOB_READ_WRITE_TOKEN, and streams it back to the authenticated owner.
 //
-// Note: this streams the whole object (no HTTP Range support). Linear playback
-// works; scrubbing may re-request from the start. Fine for a personal journal.
+// Issue #41: the <audio> element showed 0:00/0:00 until play. iOS Safari
+// reads duration by probing with byte-range GETs (e.g. for the trailing moov
+// atom in an mp4) rather than downloading the whole file up front, and this
+// route answered every request with 200 + no Accept-Ranges, so Safari had no
+// way to know Range was supported and never got a duration before playback
+// started. @vercel/blob's get() has no server-side Range passthrough (its
+// GetBlobResult type only models 200/304), so Range support is implemented
+// here: fetch the full private blob, then slice the buffer for a 206 when the
+// request carries a Range header. Fine at personal-journal scale.
 
 import { get } from "@vercel/blob";
 import { getEntry } from "@/lib/db";
 import { audioBlobPath } from "@/lib/blob";
 import { getServerSession } from "@/lib/auth-server";
+import { parseRange } from "@/lib/range";
 
 export async function GET(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   if (!(await getServerSession())) {
@@ -49,10 +57,39 @@ export async function GET(
     return new Response("Not found", { status: 404 });
   }
 
-  return new Response(result.stream, {
+  const contentType = result.blob.contentType ?? entry.audioMime;
+  const size = result.blob.size;
+  const range = parseRange(req.headers.get("range"), size);
+
+  if (range.type === "unsatisfiable") {
+    return new Response(null, {
+      status: 416,
+      headers: { "Content-Range": `bytes */${size}`, "Accept-Ranges": "bytes" },
+    });
+  }
+
+  if (range.type === "none") {
+    return new Response(result.stream, {
+      headers: {
+        "Content-Type": contentType,
+        "Content-Length": String(size),
+        "Accept-Ranges": "bytes",
+        "Cache-Control": "private, max-age=31536000, immutable",
+      },
+    });
+  }
+
+  // Satisfiable Range request: @vercel/blob's get() has no server-side Range
+  // passthrough, so buffer the full body and slice it ourselves.
+  const buffer = Buffer.from(await new Response(result.stream).arrayBuffer());
+  const slice = buffer.subarray(range.start, range.end + 1);
+  return new Response(slice, {
+    status: 206,
     headers: {
-      "Content-Type": result.blob.contentType ?? entry.audioMime,
-      "Content-Length": String(result.blob.size),
+      "Content-Type": contentType,
+      "Content-Length": String(slice.length),
+      "Content-Range": `bytes ${range.start}-${range.end}/${size}`,
+      "Accept-Ranges": "bytes",
       "Cache-Control": "private, max-age=31536000, immutable",
     },
   });

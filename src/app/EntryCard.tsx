@@ -198,7 +198,7 @@ export default function EntryCard({
         </ul>
       )}
       {e.audioUrl && (
-        <audio controls preload="none" src={e.audioUrl} className="mt-1 w-full">
+        <audio controls preload="metadata" src={e.audioUrl} className="mt-1 w-full">
           <track kind="captions" />
         </audio>
       )}

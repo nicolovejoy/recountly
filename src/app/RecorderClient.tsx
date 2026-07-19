@@ -175,11 +175,15 @@ export default function RecorderClient() {
   // navigating away during "finishing"/"saving" would unmount this page and
   // silently lose a failed save's transcript. The cleanup keeps the guard
   // honest between changes and on unmount.
-  const { setBusy } = useCaptureGuard();
+  const { setBusy, setStatus } = useCaptureGuard();
   useEffect(() => {
     setBusy(guardBusy(status, saveState));
-    return () => setBusy(false);
-  }, [status, saveState, setBusy]);
+    setStatus(status);
+    return () => {
+      setBusy(false);
+      setStatus("idle");
+    };
+  }, [status, saveState, setBusy, setStatus]);
 
   // Esc, from anywhere on the page (incl. while typing in the transcript —
   // listen on the document so a focused textarea can't swallow it): pause while

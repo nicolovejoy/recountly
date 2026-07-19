@@ -6,19 +6,28 @@
 // blocking the tabs is the simplest correct thing. Known limit (accepted):
 // browser back / typed URLs still navigate; the guard covers the tabs, which
 // are the only in-app affordance.
+//
+// Also carries the raw recorder status (idle/connecting/live/paused/error) so
+// the header wordmark can render as a REC lamp (BrandLamp) without RecorderClient
+// reaching into the DOM. On non-Capture tabs the recorder is unmounted, so this
+// reads "idle" there — expected.
 
 import { createContext, useContext, useMemo, useState } from "react";
+import type { RecorderStatus } from "@/lib/recorder-state";
 
 interface CaptureGuard {
   busy: boolean;
   setBusy: (b: boolean) => void;
+  status: RecorderStatus;
+  setStatus: (s: RecorderStatus) => void;
 }
 
 const CaptureGuardContext = createContext<CaptureGuard | null>(null);
 
 export function CaptureGuardProvider({ children }: { children: React.ReactNode }) {
   const [busy, setBusy] = useState(false);
-  const value = useMemo(() => ({ busy, setBusy }), [busy]);
+  const [status, setStatus] = useState<RecorderStatus>("idle");
+  const value = useMemo(() => ({ busy, setBusy, status, setStatus }), [busy, status]);
   return <CaptureGuardContext.Provider value={value}>{children}</CaptureGuardContext.Provider>;
 }
 
