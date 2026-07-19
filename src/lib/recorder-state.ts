@@ -93,3 +93,31 @@ export function isCaptureBusy(status: RecorderStatus): boolean {
       return false;
   }
 }
+
+// The save pipeline's states (owned here so the guard below can classify them;
+// RecorderClient drives them). "finishing" = Done tapped, flush window running;
+// "saving" = POST in flight.
+export const SAVE_STATES = ["idle", "finishing", "saving", "saved", "error"] as const;
+export type SaveState = (typeof SAVE_STATES)[number];
+
+// Whether a save is in flight — between Done and the POST settling, navigating
+// away unmounts the recorder page and silently loses a failed save's
+// transcript. "error" is NOT busy: the failure toast is visible by then, so
+// leaving is an informed choice, and disabling tabs would trap the user.
+export function isSaveBusy(saveState: SaveState): boolean {
+  switch (saveState) {
+    case "finishing":
+    case "saving":
+      return true;
+    case "idle":
+    case "saved":
+    case "error":
+      return false;
+  }
+}
+
+// What the capture-guard effect feeds the tab bar (#29): busy if EITHER the
+// session or a save is in flight.
+export function guardBusy(status: RecorderStatus, saveState: SaveState): boolean {
+  return isCaptureBusy(status) || isSaveBusy(saveState);
+}

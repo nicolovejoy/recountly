@@ -7,7 +7,7 @@
 // Header chrome (brand + build stamp) and the tab bar live in (tabs)/layout.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { primaryAction, isCaptureBusy } from "@/lib/recorder-state";
+import { primaryAction, guardBusy, type SaveState } from "@/lib/recorder-state";
 import { buildEntryFormData } from "@/lib/entry-form";
 import { downscalePhoto } from "@/lib/image";
 import { writtenAtIso } from "@/lib/written-at";
@@ -22,8 +22,6 @@ import RecStatusLine from "./RecStatusLine";
 import EventLog from "./EventLog";
 import JournalBar from "./JournalBar";
 import PhotoTray from "./PhotoTray";
-
-type SaveState = "idle" | "finishing" | "saving" | "saved" | "error";
 
 export default function RecorderClient() {
   const editorRef = useRef<TranscriptEditorHandle | null>(null);
@@ -160,13 +158,15 @@ export default function RecorderClient() {
 
   const inSession = status === "connecting" || status === "live" || status === "paused";
 
-  // Report session-in-flight to the tab bar (disables Library/Search). The
-  // cleanup keeps the guard honest between status changes and on unmount.
+  // Report session-OR-save-in-flight to the tab bar (disables Library/Search):
+  // navigating away during "finishing"/"saving" would unmount this page and
+  // silently lose a failed save's transcript. The cleanup keeps the guard
+  // honest between changes and on unmount.
   const { setBusy } = useCaptureGuard();
   useEffect(() => {
-    setBusy(isCaptureBusy(status));
+    setBusy(guardBusy(status, saveState));
     return () => setBusy(false);
-  }, [status, setBusy]);
+  }, [status, saveState, setBusy]);
 
   // Esc, from anywhere on the page (incl. while typing in the transcript —
   // listen on the document so a focused textarea can't swallow it): pause while
