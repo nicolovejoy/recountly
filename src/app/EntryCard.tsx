@@ -3,15 +3,21 @@
 // One saved-entry card, extracted from EntryList (issue #29) so the Library
 // journal/unfiled views can reuse it: title/date/duration, journal chip,
 // written date, summary, tags, clamp-aware expand with lazy photo fetch,
-// audio + partial-audio cue, Trash with confirm. Per-card state (expanded,
-// photos, trashing) lives here; the parent only learns about a successful
-// trash via onTrashed and drops the row. journalLabel null hides the chip
-// (redundant inside a journal's own view).
+// audio + partial-audio cue, Trash with confirm, Move… (issue #28). Per-card
+// state (expanded, photos, trashing, moving) lives here; the parent only
+// learns about a successful trash/move via onTrashed/onMoved and decides
+// whether the row stays (e.g. a view filtered to one journal drops a row that
+// moved elsewhere). journalLabel null hides the chip (redundant inside a
+// journal's own view).
 
 import { useLayoutEffect, useRef, useState } from "react";
 import { formatElapsed } from "@/lib/elapsed";
 import type { EntryRecord } from "@/lib/entry";
 import type { PhotoRecord } from "@/lib/photo";
+
+// Sentinel for the Move picker's "Unfiled" option — distinct from any real
+// journal id (ULIDs/imp_*), same idea as search.ts's UNFILED_FILTER.
+const UNFILED_VALUE = "__unfiled__";
 
 function formatWhen(iso: string): string {
   const d = new Date(iso);
@@ -74,11 +80,15 @@ function EntryTranscript({
 export default function EntryCard({
   entry: e,
   journalLabel,
+  journals,
   onTrashed,
+  onMoved,
 }: {
   entry: EntryRecord;
   journalLabel: string | null; // null hides the journal chip
+  journals: { id: string; label: string }[] | null; // options for the Move picker
   onTrashed: (id: string) => void;
+  onMoved: (id: string, journalId: string | null) => void;
 }) {
   const [isOpen, setIsOpen] = useState(false);
   // Photos are fetched lazily on first expand and cached; null = not yet
@@ -86,6 +96,9 @@ export default function EntryCard({
   const [photos, setPhotos] = useState<PhotoRecord[] | null>(null);
   const [trashing, setTrashing] = useState(false);
   const [trashError, setTrashError] = useState<string | null>(null);
+  const [movePickerOpen, setMovePickerOpen] = useState(false);
+  const [moving, setMoving] = useState(false);
+  const [moveError, setMoveError] = useState<string | null>(null);
 
   function toggle() {
     setIsOpen((open) => !open);
@@ -125,6 +138,25 @@ export default function EntryCard({
     }
   }
 
+  async function handleMove(journalId: string | null) {
+    setMoving(true);
+    setMoveError(null);
+    try {
+      const res = await fetch(`/api/entries/${e.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ journalId }),
+      });
+      if (!res.ok) throw new Error(`move route ${res.status}`);
+      setMovePickerOpen(false);
+      onMoved(e.id, journalId);
+    } catch (err) {
+      setMoveError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setMoving(false);
+    }
+  }
+
   return (
     <li className="flex flex-col gap-2 rounded-xl border border-foreground/10 p-4">
       <div className="flex items-baseline justify-between gap-3">
@@ -135,6 +167,16 @@ export default function EntryCard({
           <span className="text-xs tabular-nums text-foreground/50">
             {formatElapsed(e.durationSeconds)}
           </span>
+          {journals !== null && (
+            <button
+              type="button"
+              onClick={() => setMovePickerOpen((open) => !open)}
+              disabled={moving}
+              className="text-xs text-foreground/40 hover:text-foreground/70 disabled:opacity-50"
+            >
+              {moving ? "Moving…" : "Move…"}
+            </button>
+          )}
           <button
             type="button"
             onClick={handleDelete}
@@ -145,6 +187,44 @@ export default function EntryCard({
           </button>
         </span>
       </div>
+      {movePickerOpen && (
+        <div className="flex items-center gap-2 text-xs text-foreground/50">
+          <span>Move to</span>
+          <select
+            defaultValue=""
+            disabled={moving}
+            onChange={(ev) => {
+              const v = ev.target.value;
+              if (!v) return;
+              handleMove(v === UNFILED_VALUE ? null : v);
+            }}
+            aria-label="Move to journal"
+            className="rounded-lg border border-foreground/15 bg-transparent px-2 py-1 text-xs outline-none focus:border-foreground/40"
+          >
+            <option value="" disabled>
+              Choose…
+            </option>
+            {/* Current journal (or Unfiled, if that's where it already is) is
+                excluded — picking it would be a no-op move. */}
+            {e.journalId !== null && <option value={UNFILED_VALUE}>Unfiled</option>}
+            {journals
+              ?.filter((j) => j.id !== e.journalId)
+              .map((j) => (
+                <option key={j.id} value={j.id}>
+                  {j.label}
+                </option>
+              ))}
+          </select>
+          <button
+            type="button"
+            onClick={() => setMovePickerOpen(false)}
+            className="text-foreground/40 hover:text-foreground/70"
+          >
+            Cancel
+          </button>
+        </div>
+      )}
+      {moveError && <p className="text-sm text-red-500">Couldn’t move entry: {moveError}</p>}
       {trashError && (
         <p className="text-sm text-red-500">Couldn’t trash entry: {trashError}</p>
       )}

@@ -3,14 +3,18 @@
 // glue over the tested db/blob layers, itself tested with a fake runner/delFn.
 //
 // Invariants (see the plan): purge only ever targets already-trashed rows;
-// photo rows are deleted before the entry row (no ON DELETE CASCADE); blob
-// deletes are best-effort and run AFTER the row deletes, with the paths
-// derived before the rows disappear.
+// photo rows AND entry_moves rows are deleted before the entry row (neither
+// has ON DELETE CASCADE — issue #28's move log would otherwise FK-violate on
+// purging a moved entry); blob deletes are best-effort and run AFTER the row
+// deletes, with the paths derived before the rows disappear. Purge is
+// permanent, so dropping the move history alongside everything else is
+// correct — there's no restore path left for it to document.
 
 import {
   getEntry,
   listPhotosByEntry,
   deletePhotosByEntry,
+  deleteEntryMovesByEntry,
   deleteEntry,
   listTrashedEntries,
   type QueryRunner,
@@ -42,6 +46,7 @@ export async function purgeTrashedEntry(
   for (const p of photos) paths.push(photoBlobPath(p.id, p.mime));
 
   await deletePhotosByEntry(id, deps.runner); // before the entry row — no CASCADE
+  await deleteEntryMovesByEntry(id, deps.runner); // ditto (issue #28 audit log)
   await deleteEntry(id, deps.runner);
   try {
     await deleteBlobPaths(paths, deps.delFn); // no-op when paths is empty

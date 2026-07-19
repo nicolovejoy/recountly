@@ -21,6 +21,10 @@ function fakePurgeDeps(opts: {
         calls.push({ op: "delete-photos", values });
         return [];
       }
+      if (text.startsWith("DELETE FROM entry_moves")) {
+        calls.push({ op: "delete-entry-moves", values });
+        return [];
+      }
       if (text.startsWith("DELETE FROM entries")) {
         calls.push({ op: "delete-entry", values });
         return [{ id: values[0] }];
@@ -87,7 +91,7 @@ describe("purgeTrashedEntry", () => {
     expect(calls.map((c) => c.op)).toEqual(["get-entry"]);
   });
 
-  it("purges a trashed entry: photo rows before the entry row, blobs (audio + photos) last", async () => {
+  it("purges a trashed entry: photo + move-log rows before the entry row, blobs (audio + photos) last", async () => {
     const { runner, delFn, calls } = fakePurgeDeps({
       entriesById: { "01ENTRY": trashedRow("01ENTRY") },
       photosByEntry: { "01ENTRY": [photoRow("01P1", "01ENTRY"), photoRow("01P2", "01ENTRY")] },
@@ -98,15 +102,30 @@ describe("purgeTrashedEntry", () => {
       "get-entry",
       "list-photos",
       "delete-photos",
+      "delete-entry-moves",
       "delete-entry",
       "delete-blobs",
     ]);
     expect(calls[2].values).toEqual(["01ENTRY"]);
     expect(calls[3].values).toEqual(["01ENTRY"]);
+    expect(calls[4].values).toEqual(["01ENTRY"]);
     // Paths derived before the rows disappeared: audio by entry id/mime, photos by photo id/mime.
-    expect(calls[4].values).toEqual([
+    expect(calls[5].values).toEqual([
       ["audio/01ENTRY.mp4", "photos/01P1.jpg", "photos/01P2.jpg"],
     ]);
+  });
+
+  it("purges a moved entry cleanly: entry_moves rows are cleared before the entry row (no FK violation, issue #28)", async () => {
+    const { runner, delFn, calls } = fakePurgeDeps({
+      entriesById: { "01MOVED": trashedRow("01MOVED") },
+    });
+    const out = await purgeTrashedEntry("01MOVED", { runner, delFn });
+    expect(out).toBe("purged");
+    const movesIdx = calls.findIndex((c) => c.op === "delete-entry-moves");
+    const entryIdx = calls.findIndex((c) => c.op === "delete-entry");
+    expect(movesIdx).toBeGreaterThanOrEqual(0);
+    expect(movesIdx).toBeLessThan(entryIdx);
+    expect(calls[movesIdx].values).toEqual(["01MOVED"]);
   });
 
   it("still returns purged when the blob delete fails (best-effort)", async () => {
@@ -131,6 +150,7 @@ describe("purgeTrashedEntry", () => {
       "get-entry",
       "list-photos",
       "delete-photos",
+      "delete-entry-moves",
       "delete-entry",
     ]);
   });

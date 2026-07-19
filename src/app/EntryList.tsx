@@ -10,7 +10,11 @@
 // dropped here.
 
 import { useEffect, useMemo, useState } from "react";
-import { buildSearchQueryString, journalFilterToSearch } from "@/lib/search";
+import {
+  buildSearchQueryString,
+  journalFilterToSearch,
+  UNFILED_FILTER,
+} from "@/lib/search";
 import type { EntryRecord } from "@/lib/entry";
 import EntryCard from "./EntryCard";
 import SearchBar from "./SearchBar";
@@ -119,8 +123,25 @@ export default function EntryList({
             journalLabel={
               e.journalId ? (journalLabel.get(e.journalId) ?? "journal") : null
             }
+            journals={journals}
             onTrashed={(id) =>
               setEntries((prev) => prev?.filter((x) => x.id !== id) ?? prev)
+            }
+            onMoved={(id, journalId) =>
+              setEntries((prev) => {
+                if (!prev) return prev;
+                // A journal filter (real or Unfiled) that no longer matches
+                // the moved-to journal drops the row, same as onTrashed;
+                // otherwise just refresh its journalId (chip updates too).
+                if (journalFilter) {
+                  const stillMatches =
+                    journalFilter === UNFILED_FILTER
+                      ? journalId === null
+                      : journalId === journalFilter;
+                  if (!stillMatches) return prev.filter((x) => x.id !== id);
+                }
+                return prev.map((x) => (x.id === id ? { ...x, journalId } : x));
+              })
             }
           />
         ))}

@@ -202,6 +202,41 @@ export function listUnenrichedSql(limit = 50): SqlQuery {
   };
 }
 
+// Move entries (issue #28). The UPDATE and the entry_moves audit INSERT must
+// land atomically — a data-modifying CTE keeps them one statement (one round
+// trip, no partial-write window). Callers pre-check entry existence/liveness
+// and target-journal existence (getEntry/getJournal, 404/400) and skip calling
+// this entirely on a same-journal no-op (nothing to log).
+//
+// from_journal_id is read INSIDE this statement (the `old` CTE, `FOR UPDATE`
+// locking the row) rather than passed in by the caller — a caller-supplied
+// value would be stale under a concurrent move (two tabs), logging the wrong
+// "from". `moved` re-guards deleted_at IS NULL against a concurrent trash and
+// joins FROM old, so an unknown/trashed id (old empty, or moved's WHERE
+// excludes it) yields zero rows all the way through. RETURNING entry_id from
+// the INSERT (empty when nothing moved) is how the caller tells "moved" from
+// "not found" without a second query.
+export function moveEntrySql(id: string, toJournalId: string | null): SqlQuery {
+  return {
+    text:
+      "WITH old AS (SELECT journal_id FROM entries WHERE id = $1 FOR UPDATE), " +
+      "moved AS (UPDATE entries SET journal_id = $2, updated_at = now() FROM old WHERE entries.id = $1 AND entries.deleted_at IS NULL RETURNING entries.id) " +
+      "INSERT INTO entry_moves (entry_id, from_journal_id, to_journal_id) SELECT moved.id, old.journal_id, $2 FROM moved, old RETURNING entry_id",
+    values: [id, toJournalId],
+  };
+}
+
+// Purge (issue #27/#28): entry_moves.entry_id FK's to entries with no
+// ON DELETE CASCADE, so a purge of a moved entry must clear its move history
+// first — same idiom as deletePhotosByEntrySql (photo.ts). Purge is
+// permanent, so dropping the audit trail for the destroyed row is correct.
+export function deleteEntryMovesByEntrySql(entryId: string): SqlQuery {
+  return {
+    text: "DELETE FROM entry_moves WHERE entry_id = $1",
+    values: [entryId],
+  };
+}
+
 // A row as returned by the driver: snake_case columns; timestamptz comes back
 // as a Date (node-postgres) or an ISO string (some HTTP drivers) — handle both.
 export type EntryRow = Record<string, unknown>;

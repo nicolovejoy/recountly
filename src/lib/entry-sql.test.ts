@@ -10,6 +10,8 @@ import {
   restoreEntrySql,
   updateEnrichmentSql,
   listUnenrichedSql,
+  moveEntrySql,
+  deleteEntryMovesByEntrySql,
   rowToEntry,
 } from "./entry-sql";
 import type { EntryRecord, EntryEnrichment } from "./entry";
@@ -276,6 +278,50 @@ describe("listUnenrichedSql", () => {
 
   it("defaults the limit to 50", () => {
     expect(listUnenrichedSql().values).toEqual([50]);
+  });
+});
+
+describe("moveEntrySql", () => {
+  it("atomically updates journal_id and logs the move in one statement (data-modifying CTE)", () => {
+    const q = moveEntrySql("e1", "01NEW");
+    expect(q.text).toContain("WITH old AS (SELECT journal_id FROM entries WHERE id = $1 FOR UPDATE)");
+    expect(q.text).toContain(
+      "moved AS (UPDATE entries SET journal_id = $2, updated_at = now() FROM old WHERE entries.id = $1 AND entries.deleted_at IS NULL RETURNING entries.id)",
+    );
+    expect(q.text).toContain("INSERT INTO entry_moves (entry_id, from_journal_id, to_journal_id)");
+    expect(q.text).toContain("SELECT moved.id, old.journal_id, $2 FROM moved, old");
+    expect(q.values).toEqual(["e1", "01NEW"]);
+  });
+
+  it("captures from_journal_id inside the statement (FOR UPDATE), not from a caller-supplied param", () => {
+    const q = moveEntrySql("e1", "01NEW");
+    // Only id and toJournalId are parameterized — the "from" side is read
+    // from the locked row itself, immune to a concurrent-move race.
+    expect(q.values).toHaveLength(2);
+    expect(q.text).toContain("FOR UPDATE");
+  });
+
+  it("supports moving to Unfiled (null target journal id)", () => {
+    const q = moveEntrySql("e1", null);
+    expect(q.values).toEqual(["e1", null]);
+  });
+
+  it("guards the UPDATE on a live (non-trashed) row", () => {
+    const q = moveEntrySql("e1", "01NEW");
+    expect(q.text).toContain("entries.deleted_at IS NULL");
+  });
+
+  it("returns entry_id from the INSERT so the caller can tell moved from not-found", () => {
+    const q = moveEntrySql("e1", "01NEW");
+    expect(q.text).toContain("RETURNING entry_id");
+  });
+});
+
+describe("deleteEntryMovesByEntrySql", () => {
+  it("deletes all move-log rows for an entry, filtered by entry_id", () => {
+    const q = deleteEntryMovesByEntrySql("e1");
+    expect(q.text).toBe("DELETE FROM entry_moves WHERE entry_id = $1");
+    expect(q.values).toEqual(["e1"]);
   });
 });
 

@@ -16,6 +16,7 @@ import type { JournalSummary } from "@/lib/journal";
 import { buildSearchQueryString } from "@/lib/search";
 import { formatEntryDateRange } from "@/lib/date-range";
 import EntryCard from "./EntryCard";
+import { useJournals } from "./useJournals";
 
 type SortOption = "newest" | "reading";
 
@@ -25,6 +26,7 @@ export default function JournalView({ journalId }: { journalId: string }) {
   const [entries, setEntries] = useState<EntryRecord[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [sort, setSort] = useState<SortOption>("newest");
+  const { journals } = useJournals(); // options for each card's Move picker
 
   useEffect(() => {
     let alive = true;
@@ -122,9 +124,17 @@ export default function JournalView({ journalId }: { journalId: string }) {
               key={e.id}
               entry={e}
               journalLabel={null}
+              journals={journals}
               onTrashed={(id) =>
                 setEntries((prev) => prev?.filter((x) => x.id !== id) ?? prev)
               }
+              onMoved={(id, newJournalId) => {
+                // This view is scoped to one journal — a move anywhere else
+                // (another journal or Unfiled) drops the row.
+                if (newJournalId !== journalId) {
+                  setEntries((prev) => prev?.filter((x) => x.id !== id) ?? prev);
+                }
+              }}
             />
           ))}
         </ul>
