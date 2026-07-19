@@ -1,23 +1,27 @@
-// Entry persistence API (Phase 2).
-//   POST /api/entries  — save an entry (multipart: transcript + fields + optional audio)
+// Entry persistence API.
+//   POST /api/entries  — save an entry (JSON: ids + blob pathnames + text)
 //   GET  /api/entries  — newest-first list
-// The secret-bearing work (DB, Blob) stays server-side; the browser posts the
-// transcript it already has plus a best-effort audio file. All the logic this
-// route leans on (validate, build, SQL, blob path) is unit-tested in src/lib.
+// Issue #23: audio + photos now upload client-direct to Vercel Blob, so the
+// save POST carries only a small JSON body (fits fetch keepalive) — no binaries
+// pass through the function body and the 4.5 MB body cap is gone. Enrichment
+// runs off the response path via after(). All the logic this route leans on
+// (validate/parse, build, SQL, blob path) is unit-tested in src/lib.
 
-import { ulid } from "@/lib/ulid";
+import { after } from "next/server";
+import { buildEntryRecord } from "@/lib/entry";
+import { audioProxyPath } from "@/lib/blob";
+import { photoProxyPath, type PhotoRecord } from "@/lib/photo";
 import {
-  validateEntryInput,
-  buildEntryRecord,
-  type EntryInput,
-  type EntryEnrichment,
-} from "@/lib/entry";
-import { uploadAudio, audioProxyPath } from "@/lib/blob";
-import { uploadPhoto, photoProxyPath, type PhotoRecord } from "@/lib/photo";
-import { insertEntry, insertPhoto, searchEntries, getJournal } from "@/lib/db";
+  insertEntry,
+  insertPhoto,
+  searchEntries,
+  getJournal,
+  updateEntryEnrichment,
+} from "@/lib/db";
 import { enrichTranscript } from "@/lib/enrich";
 import { getAnthropic } from "@/lib/anthropic";
 import { parseSearchFilters } from "@/lib/search";
+import { parseSaveBody } from "@/lib/save-payload";
 import { getServerSession } from "@/lib/auth-server";
 
 export async function GET(request: Request) {
@@ -42,118 +46,57 @@ export async function POST(request: Request) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  let form: FormData;
+  let raw: unknown;
   try {
-    form = await request.formData();
+    raw = await request.json();
   } catch {
-    return Response.json({ error: "Expected multipart/form-data" }, { status: 400 });
+    return Response.json({ error: "Expected application/json" }, { status: 400 });
   }
 
-  const input: EntryInput = {
-    transcript: String(form.get("transcript") ?? ""),
-    durationSeconds: Number(form.get("durationSeconds") ?? NaN),
-  };
-  const recordedAt = form.get("recordedAt");
-  if (typeof recordedAt === "string" && recordedAt) input.recordedAt = recordedAt;
-  const journalId = form.get("journalId");
-  if (typeof journalId === "string" && journalId) input.journalId = journalId;
-  const writtenAt = form.get("writtenAt");
-  if (typeof writtenAt === "string" && writtenAt) input.writtenAt = writtenAt;
-
-  // Best-effort audio: a File part may be absent (paused entry, unsupported
-  // browser) or empty. Only treat a non-empty file as audio.
-  const audio = form.get("audio");
-  const hasAudio = audio instanceof File && audio.size > 0;
-  if (hasAudio) {
-    input.audioMime = audio.type || "application/octet-stream";
-    input.audioBytes = audio.size;
-    // false only when the client explicitly says so (paused mid-entry).
-    input.audioComplete = form.get("audioComplete") !== "false";
+  // The blobs are already in the store (client-direct upload); this validates
+  // only the small JSON contract (ids + pathnames + text) — save-payload.ts.
+  const parsed = parseSaveBody(raw);
+  if (!parsed.ok) {
+    return Response.json(
+      { error: "Invalid entry", problems: parsed.problems },
+      { status: 400 },
+    );
   }
+  const { input, audio, photos } = parsed;
+  // The client mints the entry id (isomorphic ulid) — it's the primary key and
+  // the idempotency key. parseSaveBody has already asserted it's a non-empty string.
+  const id = (raw as { id: string }).id;
 
-  // Page photos are NOT best-effort (unlike audio): any problem here fails the
-  // save loudly so the owner can re-shoot the page now — issue #10 is why.
-  const MAX_PHOTO_BYTES = 8 * 1024 * 1024;
-  const photoFiles = form
-    .getAll("photo")
-    .filter((p): p is File => p instanceof File && p.size > 0);
-  const photoProblems: string[] = [];
-  for (const f of photoFiles) {
-    if (!f.type.startsWith("image/")) {
-      photoProblems.push(`photo ${f.name} is not an image (${f.type || "unknown type"})`);
-    }
-    if (f.size > MAX_PHOTO_BYTES) {
-      photoProblems.push(`photo ${f.name} exceeds ${MAX_PHOTO_BYTES} bytes`);
-    }
-  }
-
-  const errors = [...validateEntryInput(input), ...photoProblems];
-  if (errors.length) {
-    return Response.json({ error: "Invalid entry", problems: errors }, { status: 400 });
-  }
-
-  // Checked before any blob upload: a journalId that doesn't exist would
-  // otherwise let photo/audio blobs upload and then fail the entry INSERT on
-  // the FK (entries.journal_id REFERENCES journals(id)), orphaning them.
+  // Kept even though uploads now precede the POST: a client desync could still
+  // send a stale journalId, and the check documents the FK constraint
+  // (entries.journal_id REFERENCES journals(id)).
+  // ⚠️ Because blobs upload client-direct BEFORE this POST, a 400 here no longer
+  // prevents orphan blobs — the audio/photo blobs are already in the store. That
+  // is acceptable (id-keyed, reclaimed by a future purge sweep); in practice
+  // journalId always comes from the client's own active journal, so a miss here
+  // is near-impossible from the real UI.
   if (input.journalId && !(await getJournal(input.journalId))) {
     return Response.json({ error: "Unknown journal" }, { status: 400 });
   }
 
-  const id = ulid();
+  // audioUrl is the gated proxy path (not the private blob URL) — playback goes
+  // through GET /api/audio/[id]. Enrichment runs after the response (see below),
+  // so the inserted row starts with empty title/tags/summary.
+  const audioUrl = audio ? audioProxyPath(id) : null;
+  const record = buildEntryRecord(input, { id, audioUrl, now: new Date(), enrichment: null });
 
-  let audioUrl: string | null = null;
-  if (hasAudio) {
-    try {
-      await uploadAudio(id, audio, input.audioMime!, input.audioBytes!);
-      // Store the gated proxy path, not the private blob URL — playback goes
-      // through GET /api/audio/[id] (auth-gated) which streams the private blob.
-      audioUrl = audioProxyPath(id);
-    } catch (err) {
-      // Audio is best-effort — a failed upload must not lose the transcript.
-      // Drop the audio fields and save the entry without it.
-      console.error("audio upload failed; saving entry without audio", err);
-      audioUrl = null;
-      input.audioMime = undefined;
-      input.audioBytes = undefined;
-    }
-  }
-
-  const photoRecords: PhotoRecord[] = [];
-  for (const f of photoFiles) {
-    const photoId = ulid();
-    try {
-      await uploadPhoto(photoId, f, f.type, f.size);
-    } catch (err) {
-      // NOT best-effort: the entry is not saved, the client must retry.
-      return Response.json(
-        { error: "Photo upload failed — entry NOT saved. Keep the page handy and retry.", detail: String(err) },
-        { status: 502 },
-      );
-    }
-    photoRecords.push({
-      id: photoId,
-      entryId: id,
-      mime: f.type,
-      bytes: f.size,
-      createdAt: new Date().toISOString(),
-    });
-  }
-
-  // Best-effort LLM enrichment (Phase 4): one structured call generates a
-  // title + tags + summary. Like audio, a failure must not fail the save — the
-  // raw transcript is untouched and a later backfill can fill enrichment in.
-  // getAnthropic() throws if the key is unset; the catch covers that too.
-  let enrichment: EntryEnrichment | null = null;
-  try {
-    enrichment = await enrichTranscript(input.transcript.trim(), getAnthropic());
-  } catch (err) {
-    console.error("enrichment failed; saving entry without it", err);
-  }
-
-  const record = buildEntryRecord(input, { id, audioUrl, now: new Date(), enrichment });
+  const photoRecords: PhotoRecord[] = photos.map((p) => ({
+    id: p.id,
+    entryId: id,
+    mime: p.mime,
+    bytes: p.bytes,
+    createdAt: new Date().toISOString(),
+  }));
 
   try {
+    // Idempotent (ON CONFLICT): a pending-save/recovery re-POST can't duplicate.
     await insertEntry(record);
+    for (const p of photoRecords) await insertPhoto(p);
   } catch (err) {
     return Response.json(
       { error: "Failed to save entry", detail: String(err) },
@@ -161,16 +104,20 @@ export async function POST(request: Request) {
     );
   }
 
-  try {
-    for (const p of photoRecords) await insertPhoto(p);
-  } catch (err) {
-    // The entry row saved but a photo record didn't — surface it loudly rather
-    // than pretend the save was clean; the blob exists, the row can be re-added.
-    return Response.json(
-      { error: "Entry saved but recording a photo failed", detail: String(err), entry: record },
-      { status: 500 },
-    );
-  }
+  // Best-effort LLM enrichment (Phase 4) moved OFF the request path (issue #23):
+  // it adds 1–3s of Haiku latency to the vulnerable save window, so schedule it
+  // with after() to run once the 201 is sent. Any failure is swallowed — the raw
+  // transcript is untouched and the /api/entries/enrich backfill is the safety net.
+  after(async () => {
+    try {
+      const enrichment = await enrichTranscript(record.transcript, getAnthropic());
+      if (enrichment) {
+        await updateEntryEnrichment(id, enrichment, new Date().toISOString());
+      }
+    } catch (err) {
+      console.error("enrichment failed (deferred); entry saved without it", err);
+    }
+  });
 
   return Response.json(
     {

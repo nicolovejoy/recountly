@@ -314,10 +314,10 @@ once per photo, returns the photos proxy paths; 500 + detail when `insertEntry` 
 enrichment is covered by `enrich.test.ts`.)
 
 **Steps:**
-- [ ] Failing POST route tests → rewrite the handler (drop `request.formData()`,
+- [x] Failing POST route tests → rewrite the handler (drop `request.formData()`,
   `uploadAudio`, `uploadPhoto`, and the in-request `enrichTranscript` call from the
   request path) → `pnpm test && pnpm lint && pnpm build` green.
-- [ ] Commit: `feat(api): POST /api/entries takes JSON + enrichment via after() (#23)`
+- [x] Commit: `feat(api): POST /api/entries takes JSON + enrichment via after() (#23)`
 
 ---
 
