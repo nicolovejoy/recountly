@@ -7,7 +7,7 @@
 import { CaptureGuardProvider } from "../CaptureGuard";
 import TabBar from "../TabBar";
 
-// Inlined at build time from next.config.ts (PST, "MM/DD/YYYY HH:MM").
+// Inlined at build time from next.config.ts ("Mar 4, 2:37 pm", Pacific).
 const BUILD_TIME = process.env.NEXT_PUBLIC_BUILD_TIME;
 
 export default function TabsLayout({
@@ -23,7 +23,7 @@ export default function TabsLayout({
         <header className="flex items-center justify-between">
           <h1 className="text-2xl font-semibold tracking-tight">recountly</h1>
           {BUILD_TIME && (
-            <span className="text-[10px] text-foreground/40 tabular-nums">{BUILD_TIME} PST</span>
+            <span className="text-[10px] text-foreground/40 tabular-nums">{BUILD_TIME} PT</span>
           )}
         </header>
         {children}

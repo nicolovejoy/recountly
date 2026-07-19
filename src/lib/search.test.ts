@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { parseSearchFilters, buildSearchQueryString } from "./search";
+import {
+  parseSearchFilters,
+  buildSearchQueryString,
+  journalFilterToSearch,
+  UNFILED_FILTER,
+} from "./search";
 
 describe("parseSearchFilters", () => {
   it("pulls q/from/to out of query params", () => {
@@ -94,5 +99,24 @@ describe("journal filter param", () => {
     expect(buildSearchQueryString({ journalId: "01JRNL", query: "cabin" })).toBe(
       "?q=cabin&journal=01JRNL",
     );
+  });
+});
+
+describe("journalFilterToSearch", () => {
+  it("maps empty (all) to no filter", () => {
+    expect(journalFilterToSearch("")).toEqual({});
+  });
+
+  it("maps the unfiled sentinel to the unfiled filter", () => {
+    expect(journalFilterToSearch(UNFILED_FILTER)).toEqual({ unfiled: true });
+  });
+
+  it("maps anything else to a journalId", () => {
+    expect(journalFilterToSearch("jrn_abc")).toEqual({ journalId: "jrn_abc" });
+  });
+
+  it("round-trips through buildSearchQueryString", () => {
+    expect(buildSearchQueryString(journalFilterToSearch(UNFILED_FILTER))).toBe("?unfiled=1");
+    expect(buildSearchQueryString(journalFilterToSearch("jrn_abc"))).toBe("?journal=jrn_abc");
   });
 });

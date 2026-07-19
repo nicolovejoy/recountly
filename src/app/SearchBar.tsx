@@ -4,7 +4,7 @@
 // recorded_at date range. State lives in EntryList; this just renders inputs and
 // reports changes. The query is debounced upstream before it hits the API.
 
-import type { JournalRecord } from "@/lib/journal";
+import { UNFILED_FILTER } from "@/lib/search";
 
 type Filters = { query: string; from: string; to: string; journal: string };
 
@@ -14,10 +14,12 @@ export default function SearchBar({
   to,
   journal,
   journals,
+  hasUnfiled = false,
   onChange,
   onClear,
 }: Filters & {
-  journals: JournalRecord[] | null;
+  journals: { id: string; label: string }[] | null;
+  hasUnfiled?: boolean; // adds an "Unfiled" choice (journal_id IS NULL)
   onChange: (patch: Partial<Filters>) => void;
   onClear: () => void;
 }) {
@@ -58,7 +60,7 @@ export default function SearchBar({
             className={field}
           />
         </label>
-        {journals !== null && journals.length > 0 && (
+        {journals !== null && (journals.length > 0 || hasUnfiled) && (
           <label className="flex items-center gap-1">
             <span>Journal</span>
             <select
@@ -68,6 +70,7 @@ export default function SearchBar({
               className={field}
             >
               <option value="">all</option>
+              {hasUnfiled && <option value={UNFILED_FILTER}>Unfiled</option>}
               {journals.map((j) => (
                 <option key={j.id} value={j.id}>
                   {j.label}
