@@ -71,7 +71,7 @@ describe("insertEntrySql", () => {
   it("upserts on id conflict, attaching audio refs iff the row has none (COALESCE)", () => {
     const q = insertEntrySql(rec);
     expect(q.text).toContain(
-      "ON CONFLICT (id) DO UPDATE SET audio_url = COALESCE(entries.audio_url, EXCLUDED.audio_url), audio_mime = COALESCE(entries.audio_mime, EXCLUDED.audio_mime), audio_bytes = COALESCE(entries.audio_bytes, EXCLUDED.audio_bytes), audio_complete = COALESCE(entries.audio_complete, EXCLUDED.audio_complete)",
+      "ON CONFLICT (id) DO UPDATE SET audio_url = EXCLUDED.audio_url, audio_mime = EXCLUDED.audio_mime, audio_bytes = EXCLUDED.audio_bytes, audio_complete = EXCLUDED.audio_complete, updated_at = EXCLUDED.updated_at WHERE entries.audio_url IS NULL AND EXCLUDED.audio_url IS NOT NULL",
     );
   });
 });
