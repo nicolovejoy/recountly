@@ -3,8 +3,9 @@
 // Saved entries (Phase 2) + search/filter (Phase 3). Holds the filter state,
 // debounces the free-text query, and fetches GET /api/entries?q&from&to. The API
 // returns rows already ordered (relevance when searching, else newest-first), so
-// this just renders them. Refetches when filters change or RecorderClient bumps
-// reloadKey after a save. Tap a transcript to expand it full-length.
+// this just renders them. Refetches when filters change, on mount (each tab
+// visit remounts it), or when the parent bumps reloadKey (e.g. after a trash
+// restore). Tap a transcript to expand it full-length.
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { formatElapsed } from "@/lib/elapsed";
@@ -73,11 +74,11 @@ function EntryTranscript({
 }
 
 export default function EntryList({
-  reloadKey,
+  reloadKey = 0,
   journals,
   onShowTrash,
 }: {
-  reloadKey: number;
+  reloadKey?: number;
   journals: JournalRecord[] | null;
   onShowTrash: () => void;
 }) {

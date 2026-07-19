@@ -77,3 +77,19 @@ export function primaryAction(status: RecorderStatus): PrimaryAction {
       return "resume";
   }
 }
+
+// Whether a capture session is in flight — feeds the tab-bar capture guard
+// (issue #29): navigating away unmounts the recorder page and kills the
+// session, so Library/Search are disabled while this is true. `paused` counts:
+// the session still holds banked time and an un-saved transcript.
+export function isCaptureBusy(status: RecorderStatus): boolean {
+  switch (status) {
+    case "connecting":
+    case "live":
+    case "paused":
+      return true;
+    case "idle":
+    case "error":
+      return false;
+  }
+}

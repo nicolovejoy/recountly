@@ -67,3 +67,27 @@ describe("primaryAction", () => {
     expect(primaryAction(status)).toBe(action);
   });
 });
+
+// isCaptureBusy feeds the #29 tab-bar capture guard: while a session is in
+// flight (connecting/live/paused), navigating away would unmount the recorder
+// and kill the session, so the other tabs are disabled.
+import { isCaptureBusy } from "./recorder-state";
+
+describe("isCaptureBusy", () => {
+  it.each([
+    ["idle", false],
+    ["connecting", true],
+    ["live", true],
+    ["paused", true],
+    ["error", false],
+  ] as const)("%s → %s", (status, busy) => {
+    expect(isCaptureBusy(status)).toBe(busy);
+  });
+
+  it("covers every status", () => {
+    // Exhaustiveness: a new status added to the machine must be classified.
+    for (const status of RECORDER_STATUSES) {
+      expect(typeof isCaptureBusy(status)).toBe("boolean");
+    }
+  });
+});

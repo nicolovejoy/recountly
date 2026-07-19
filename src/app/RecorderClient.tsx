@@ -1,12 +1,13 @@
 "use client";
 
-// Composition root for the recorder page. All imperative session logic lives
+// Composition root for the Capture tab. All imperative session logic lives
 // in useRecorder (WebRTC, timer, meter, cancellation); the transcript caret
 // logic lives in TranscriptEditor; this component wires them together and
-// keeps page-level UI policy (the Esc shortcut, header chrome).
+// keeps page-level UI policy (the Esc shortcut, the capture-guard sync).
+// Header chrome (brand + build stamp) and the tab bar live in (tabs)/layout.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { primaryAction } from "@/lib/recorder-state";
+import { primaryAction, isCaptureBusy } from "@/lib/recorder-state";
 import { buildEntryFormData } from "@/lib/entry-form";
 import { downscalePhoto } from "@/lib/image";
 import { writtenAtIso } from "@/lib/written-at";
@@ -14,26 +15,18 @@ import { SAVE_BYTES_BUDGET } from "@/lib/payload-size";
 import { planSave } from "@/lib/save-plan";
 import { useRecorder, type RecordingResult } from "./useRecorder";
 import { useJournals } from "./useJournals";
+import { useCaptureGuard } from "./CaptureGuard";
 import TranscriptEditor, { type TranscriptEditorHandle } from "./TranscriptEditor";
 import RecordButton from "./RecordButton";
 import RecStatusLine from "./RecStatusLine";
 import EventLog from "./EventLog";
-import EntryList from "./EntryList";
-import TrashView from "./TrashView";
 import JournalBar from "./JournalBar";
 import PhotoTray from "./PhotoTray";
 
 type SaveState = "idle" | "finishing" | "saving" | "saved" | "error";
 
-// Inlined at build time from next.config.ts (PST, "MM/DD/YYYY HH:MM").
-const BUILD_TIME = process.env.NEXT_PUBLIC_BUILD_TIME;
-
 export default function RecorderClient() {
   const editorRef = useRef<TranscriptEditorHandle | null>(null);
-  const [reloadKey, setReloadKey] = useState(0);
-  // Trash view toggle (issue #27). Local state until the #29 tab bar exists.
-  // Restoring bumps reloadKey so EntryList refetches when swapped back in.
-  const [showTrash, setShowTrash] = useState(false);
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const [saveError, setSaveError] = useState<string | null>(null);
 
@@ -139,7 +132,6 @@ export default function RecorderClient() {
           setPendingPhotos([]);
           setWrittenDate("");
           setSaveState("saved");
-          setReloadKey((k) => k + 1);
         })
         .catch((err) => {
           setSaveError(err instanceof Error ? err.message : String(err));
@@ -168,6 +160,14 @@ export default function RecorderClient() {
 
   const inSession = status === "connecting" || status === "live" || status === "paused";
 
+  // Report session-in-flight to the tab bar (disables Library/Search). The
+  // cleanup keeps the guard honest between status changes and on unmount.
+  const { setBusy } = useCaptureGuard();
+  useEffect(() => {
+    setBusy(isCaptureBusy(status));
+    return () => setBusy(false);
+  }, [status, setBusy]);
+
   // Esc, from anywhere on the page (incl. while typing in the transcript —
   // listen on the document so a focused textarea can't swallow it): pause while
   // live, cancel an in-flight connect, do nothing once paused (Done is explicit).
@@ -185,18 +185,12 @@ export default function RecorderClient() {
   }, [status, pause, stop]);
 
   return (
-    <main className="mx-auto flex min-h-full w-full max-w-2xl flex-1 flex-col gap-6 px-5 py-8">
-      <header className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold tracking-tight">recountly</h1>
-        <div className="flex items-center gap-3">
-          {BUILD_TIME && (
-            <span className="text-[10px] text-foreground/40 tabular-nums">{BUILD_TIME} PST</span>
-          )}
-          <span className="rounded-full border border-foreground/10 px-3 py-1 text-xs text-foreground/50">
-            {status}
-          </span>
-        </div>
-      </header>
+    <div className="flex flex-col gap-6">
+      <div className="flex justify-end">
+        <span className="rounded-full border border-foreground/10 px-3 py-1 text-xs text-foreground/50">
+          {status}
+        </span>
+      </div>
 
       <div className="flex flex-col items-center gap-3">
         <RecordButton status={status} onPress={onPressPrimary} />
@@ -287,20 +281,7 @@ export default function RecorderClient() {
         </div>
       )}
 
-      {showTrash ? (
-        <TrashView
-          onBack={() => setShowTrash(false)}
-          onRestored={() => setReloadKey((k) => k + 1)}
-        />
-      ) : (
-        <EntryList
-          reloadKey={reloadKey}
-          journals={journals}
-          onShowTrash={() => setShowTrash(true)}
-        />
-      )}
-
       <EventLog log={log} />
-    </main>
+    </div>
   );
 }
