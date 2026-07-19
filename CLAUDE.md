@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Project status: journal archive + save-feedback/trash hardening shipped (2026-07-18) — live on recountly.org, auth-gated (live transcription + editable transcript + persistence + Better Auth + full-text search + LLM enrichment + markdown import + journals/photos capture + entry trash). Phone save bug RESOLVED; org/nav redesign approved, doc on `docs/org-nav-design` branch.
+## Project status: nav shell shipped (2026-07-19, PR #32) — live on recountly.org, auth-gated. Capture/Library/Search bottom tabs, journal/unfiled/trash views, reading-order journal browsing, trash UI (#27, PR #31). 334 vitest tests. Design doc merged to `docs/organization-and-navigation.md`.
 
 Live transcription works end-to-end: speak and words appear via a direct browser→OpenAI
 WebRTC connection (mic meter + in-app error surfacing in place). The transcript is now an
@@ -196,13 +196,39 @@ tests are REQUIRED for these features. Design of record: `docs/organization-and-
 on branch **`docs/org-nav-design`** (pushed, unmerged). Build order: #27 trash view → #29 nav
 shell/Library → #28 move → capture polish → search increments.
 
+**Shipped 2026-07-19 (this session):** #27 trash view (PR #31 — list/restore/purge routes,
+`src/lib/purge.ts` orchestration, repo's FIRST route-level integration tests via `vi.mock`
+auth/db + constructed Requests, `docs/smoke-checklist.md`); #29 nav shell Tasks 1–5 (PR #32 —
+`(tabs)` route group + fixed bottom TabBar, Capture slimmed to recorder-only, Library with
+journal cards/tappable Unfiled/`/library/trash`, reading-order `/library/[journalId]`,
+`sort`/`unfiled`/`limit` on SearchFilters with newest-path SQL byte-for-byte unchanged,
+`GET /api/journals/summaries`, capture guard disables tabs while recording OR save in flight,
+`EntryCard` extracted from `EntryList`). Task 6 (journal covers) deferred → **issue #33**.
+Plans in `docs/superpowers/plans/2026-07-1{8,9}-*.md`; built via fresh implementer+reviewer
+subagents per task + final branch review.
+
+**Stack assessment (2026-07-19, owner-requested):** stack is sound, no rewrite. Findings:
+(1) the 4.5MB body cap is the real wall (audio+photos through one function body) — fix is
+`@vercel/blob` client-direct uploads + JSON-only save; (2) that small JSON save fits
+`fetch keepalive` (64KB cap!), unlocking the clean #23 fix — same solution, do together;
+enrichment should leave the save request path (adds 1–3s Haiku latency to the vulnerable
+window; use Next 16 `after()` or the existing backfill); (3) Node 20 is EOL → bump to 22 +
+unpin pnpm; (4) photo grids want a ~300px thumb variant stored at save (do with #33);
+(5) leave alone: Better Auth, FTS, dual DB drivers, private-blob proxy, serverless.
+
 **Next Steps**:
-- **Merge `docs/org-nav-design`** (review the design doc on the mini), then build per its
-  order: **#27 trash view → #29 nav shell/Library/journal view → #28 move entries → capture
-  session polish (`page_label` + sticky) → search increments**. Route-level integration tests
-  + `docs/smoke-checklist.md` start with the first build PR.
-- **Issue #23** — iOS save-loss hardening (pagehide flush, `keepalive` fetch, merge interim
-  text on Done). The toast made the gap visible; this makes it safe.
+- **Smoke-test #32 on the phone** (`docs/smoke-checklist.md` — nav section; restore flow
+  still never phone-tested).
+- **Issue #23 REPLANNED (owner approved 2026-07-19):** durable save = client-direct blob
+  uploads + small JSON save with `keepalive` + IndexedDB pending-save retry on next open +
+  interim-text merge on Done + lifecycle flush (pagehide/visibilitychange). The earlier
+  timer/keepalive-only plan + its branch were deleted (keepalive can't carry multipart —
+  64KB). ~2 sessions. Verify `@vercel/blob` client-upload API against the installed package
+  docs before planning.
+- **Node 22 + pnpm 10 chore PR (owner approved)** — before passkeys. Local Node install is
+  the owner's manual step; also verify the Vercel project's Node runtime.
+- **#28 move entries** → capture session polish (`page_label` + sticky) → search increments
+  (chip UI), per the design doc order. **#33** journal covers (+ thumb variant) when touched.
 - Parked follow-ups still open: verify EXIF portrait orientation on iPhone, optimistic
   journal-switch UI, photo-fetch retry after transient failure.
 - **Passkeys (WebAuthn) primary + email/password as break-glass fallback** (NOT SMS — rejected as
