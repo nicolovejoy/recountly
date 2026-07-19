@@ -130,7 +130,7 @@ trash again → delete forever → confirm gone from Trash → empty trash on a 
 throwaway.
 
 **Steps:**
-- [ ] Write it; commit: `docs: smoke checklist (first: build timestamp) (#27)`
+- [x] Write it; commit: `docs: smoke checklist (first: build timestamp) (#27)`
 
 ---
 
