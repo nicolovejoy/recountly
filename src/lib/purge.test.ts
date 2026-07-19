@@ -12,6 +12,7 @@ function fakePurgeDeps(opts: {
   photosByEntry?: Record<string, EntryRow[]>;
   trashed?: EntryRow[];
   delFails?: boolean;
+  throwOnGetEntry?: string;
 } = {}) {
   const calls: { op: string; values: unknown[] }[] = [];
   const runner: QueryRunner = {
@@ -33,6 +34,7 @@ function fakePurgeDeps(opts: {
         return opts.photosByEntry?.[String(values[0])] ?? [];
       }
       calls.push({ op: "get-entry", values });
+      if (opts.throwOnGetEntry === String(values[0])) throw new Error("db down");
       const row = opts.entriesById?.[String(values[0])];
       return row ? [row] : [];
     },
@@ -152,6 +154,21 @@ describe("emptyTrash", () => {
     const { runner, delFn, calls } = fakePurgeDeps();
     expect(await emptyTrash({ runner, delFn })).toBe(0);
     expect(calls.map((c) => c.op)).toEqual(["list-trashed"]);
+  });
+
+  it("returns the partial count instead of throwing when a purge throws mid-loop", async () => {
+    const a = trashedRow("01A");
+    const boom = trashedRow("01BOOM");
+    const c = trashedRow("01C");
+    const { runner, delFn, calls } = fakePurgeDeps({
+      trashed: [a, boom, c],
+      entriesById: { "01A": a, "01BOOM": boom, "01C": c },
+      throwOnGetEntry: "01BOOM",
+    });
+    expect(await emptyTrash({ runner, delFn })).toBe(1);
+    // Loop stopped at the throw: 01C was never attempted.
+    const entryDeletes = calls.filter((op) => op.op === "delete-entry");
+    expect(entryDeletes.map((op) => op.values[0])).toEqual(["01A"]);
   });
 
   it("doesn't count an entry that vanished between list and purge", async () => {

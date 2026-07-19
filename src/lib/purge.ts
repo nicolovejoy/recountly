@@ -58,12 +58,18 @@ const EMPTY_TRASH_LIMIT = 1000;
 
 // Purge everything in the trash; returns how many entries were purged. Each
 // purge re-checks its own guards, so a row that vanished (or was restored)
-// between the list and the purge just doesn't count.
+// between the list and the purge just doesn't count. A purge that throws
+// stops the loop and returns the count so far instead of propagating — a
+// later "Empty trash" retry picks up the remainder (the guards make that safe).
 export async function emptyTrash(deps: PurgeDeps = {}): Promise<number> {
   const trashed = await listTrashedEntries(EMPTY_TRASH_LIMIT, deps.runner);
   let purged = 0;
   for (const entry of trashed) {
-    if ((await purgeTrashedEntry(entry.id, deps)) === "purged") purged++;
+    try {
+      if ((await purgeTrashedEntry(entry.id, deps)) === "purged") purged++;
+    } catch {
+      break;
+    }
   }
   return purged;
 }
