@@ -32,6 +32,7 @@ export default function TrashView({
   const [busy, setBusy] = useState<{ id: string; kind: "restore" | "purge" } | null>(null);
   const [emptying, setEmptying] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     let alive = true;
@@ -51,7 +52,7 @@ export default function TrashView({
     return () => {
       alive = false;
     };
-  }, []);
+  }, [reloadKey]);
 
   async function handleRestore(id: string) {
     setBusy({ id, kind: "restore" });
@@ -99,7 +100,14 @@ export default function TrashView({
     try {
       const res = await fetch("/api/entries/trash", { method: "DELETE" });
       if (!res.ok) throw new Error(`empty-trash route ${res.status}`);
-      setEntries([]);
+      const { purged } = (await res.json()) as { purged: number };
+      if (purged >= n) {
+        setEntries([]);
+      } else {
+        // emptyTrash swallows a mid-loop failure, so `purged` can be partial —
+        // refetch instead of clearing so leftovers stay visible.
+        setReloadKey((k) => k + 1);
+      }
     } catch (err) {
       setActionError(err instanceof Error ? err.message : String(err));
     } finally {

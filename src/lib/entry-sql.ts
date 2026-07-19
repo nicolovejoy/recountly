@@ -138,8 +138,8 @@ export function softDeleteEntrySql(id: string): SqlQuery {
 }
 
 // Trash view (issue #27): trashed rows only, newest-trashed first. Same shape
-// as listEntriesSql plus deleted_at, so the trash UI can show when each entry
-// was trashed and reuse the entry-card rendering (incl. the photo_count rule).
+// as listEntriesSql plus deleted_at, so trashed rows parse with the same
+// row-mapping code and payload shape as live ones.
 export function listTrashedSql(limit = 50): SqlQuery {
   return {
     text: `SELECT ${COLUMNS}, deleted_at, ${PHOTO_COUNT_COLUMN} FROM entries WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC LIMIT $1`,

@@ -13,7 +13,7 @@ Run on the phone after each prod deploy (prod redeploys on merge to main only).
 
 ## Trash (#27)
 
-4. Trash the throwaway (Trash button on the expanded card, confirm) → gone from the
+4. Trash the throwaway (Trash button on the entry card, confirm) → gone from the
    list; a search that matched it returns nothing.
 5. Open Trash (button by the Entries heading) → the entry is listed with its trashed
    date.

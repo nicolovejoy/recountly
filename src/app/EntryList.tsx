@@ -230,7 +230,7 @@ export default function EntryList({
       )}
 
       {deleteError && (
-        <p className="text-sm text-red-500">Couldn’t delete entry: {deleteError}</p>
+        <p className="text-sm text-red-500">Couldn’t trash entry: {deleteError}</p>
       )}
 
       {entries && entries.length === 0 && !error && (
