@@ -16,6 +16,7 @@ import { ulid } from "@/lib/ulid";
 import { downscalePhoto } from "@/lib/image";
 import { writtenAtIso } from "@/lib/written-at";
 import { planSave } from "@/lib/save-plan";
+import { idbPendingStore } from "./idb-pending";
 import { useRecorder, type RecordingResult } from "./useRecorder";
 import { useJournals } from "./useJournals";
 import { useCaptureGuard } from "./CaptureGuard";
@@ -118,6 +119,7 @@ export default function RecorderClient() {
       setSaveError(null);
 
       const id = getEntryId();
+      const journalId = active?.id;
       const photos = pendingPhotos.map((p) => ({ id: ulid(), blob: p.blob, mime: p.mime }));
       const audio = result.audioBlob
         ? {
@@ -126,6 +128,32 @@ export default function RecorderClient() {
             complete: result.audioComplete ?? true,
           }
         : null;
+
+      // Issue #23 Task 9: persist a durable snapshot to IndexedDB BEFORE
+      // starting uploads, so a crash/discard between now and the confirmed
+      // full-refs 201 below leaves a record PendingSaveRecovery can retry on
+      // next open. audio/photos fields are placeholders — retryPending fills
+      // them in from the re-uploaded refs; only the raw Blobs above matter.
+      // Best-effort: IndexedDB being unavailable must never block a save.
+      try {
+        await idbPendingStore.put({
+          id,
+          body: buildSaveBody({
+            id,
+            transcript,
+            durationSeconds: result.durationSeconds,
+            journalId,
+            writtenAt: writtenAtIso(writtenDate),
+            audio: null,
+            photos: [],
+          }),
+          audio,
+          photos,
+          createdAt: Date.now(),
+        });
+      } catch {
+        /* IndexedDB unavailable — proceed without the durability net */
+      }
 
       let uploaded;
       try {
@@ -169,6 +197,17 @@ export default function RecorderClient() {
         // gets a fresh id / flush guard.
         entryIdRef.current = null;
         flushFiredRef.current = false;
+        // This is the confirmed FULL-REFS 201 (audio/photo refs included) —
+        // the only response that should clear the pending-save record. The
+        // Task 8 lifecycle-flush POST is transcript-only and never reaches
+        // here, so it can never delete a record that still needs its blobs
+        // attached. Best-effort cleanup — a failure just leaves the record
+        // for PendingSaveRecovery to clean up (harmlessly) on next open.
+        try {
+          await idbPendingStore.delete(id);
+        } catch {
+          /* best-effort cleanup */
+        }
       } catch (err) {
         setSaveError(err instanceof Error ? err.message : String(err));
         setSaveState("error");
