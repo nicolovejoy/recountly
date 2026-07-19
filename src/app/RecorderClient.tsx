@@ -19,6 +19,7 @@ import RecordButton from "./RecordButton";
 import RecStatusLine from "./RecStatusLine";
 import EventLog from "./EventLog";
 import EntryList from "./EntryList";
+import TrashView from "./TrashView";
 import JournalBar from "./JournalBar";
 import PhotoTray from "./PhotoTray";
 
@@ -30,6 +31,9 @@ const BUILD_TIME = process.env.NEXT_PUBLIC_BUILD_TIME;
 export default function RecorderClient() {
   const editorRef = useRef<TranscriptEditorHandle | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  // Trash view toggle (issue #27). Local state until the #29 tab bar exists.
+  // Restoring bumps reloadKey so EntryList refetches when swapped back in.
+  const [showTrash, setShowTrash] = useState(false);
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const [saveError, setSaveError] = useState<string | null>(null);
 
@@ -283,7 +287,18 @@ export default function RecorderClient() {
         </div>
       )}
 
-      <EntryList reloadKey={reloadKey} journals={journals} />
+      {showTrash ? (
+        <TrashView
+          onBack={() => setShowTrash(false)}
+          onRestored={() => setReloadKey((k) => k + 1)}
+        />
+      ) : (
+        <EntryList
+          reloadKey={reloadKey}
+          journals={journals}
+          onShowTrash={() => setShowTrash(true)}
+        />
+      )}
 
       <EventLog log={log} />
     </main>

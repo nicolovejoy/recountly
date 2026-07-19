@@ -6,6 +6,8 @@ import {
   getEntry,
   deleteEntry,
   softDeleteEntry,
+  listTrashedEntries,
+  restoreEntry,
   updateEntryEnrichment,
   listUnenriched,
   insertJournal,
@@ -157,6 +159,42 @@ describe("softDeleteEntry", () => {
   it("returns false when no live row matched (unknown id or already trashed)", async () => {
     const { runner } = fakeRunner([]);
     expect(await softDeleteEntry("nope", runner)).toBe(false);
+  });
+});
+
+describe("listTrashedEntries", () => {
+  it("runs the trashed SELECT (newest-trashed first) and maps rows incl. deletedAt", async () => {
+    const { runner, calls } = fakeRunner([
+      { ...sampleRow, deleted_at: "2026-07-18T09:00:00.000Z" },
+    ]);
+    const out = await listTrashedEntries(10, runner);
+    expect(calls[0].text).toContain("WHERE deleted_at IS NOT NULL");
+    expect(calls[0].text).toContain("ORDER BY deleted_at DESC");
+    expect(calls[0].values).toEqual([10]);
+    expect(out[0]).toMatchObject({ id: "01HX", deletedAt: "2026-07-18T09:00:00.000Z" });
+  });
+
+  it("defaults the limit to 50", async () => {
+    const { runner, calls } = fakeRunner([]);
+    await listTrashedEntries(undefined, runner);
+    expect(calls[0].values).toEqual([50]);
+  });
+});
+
+describe("restoreEntry", () => {
+  it("returns true when a trashed row was restored", async () => {
+    const { runner, calls } = fakeRunner([{ id: "01HX" }]);
+    const out = await restoreEntry("01HX", runner);
+    expect(calls[0].text).toBe(
+      "UPDATE entries SET deleted_at = NULL, updated_at = now() WHERE id = $1 AND deleted_at IS NOT NULL RETURNING id",
+    );
+    expect(calls[0].values).toEqual(["01HX"]);
+    expect(out).toBe(true);
+  });
+
+  it("returns false when no trashed row matched (unknown id or not trashed)", async () => {
+    const { runner } = fakeRunner([]);
+    expect(await restoreEntry("nope", runner)).toBe(false);
   });
 });
 

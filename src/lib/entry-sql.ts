@@ -107,9 +107,11 @@ export function searchEntriesSql(f: SearchFilters = {}): SqlQuery {
   };
 }
 
+// Fetches trashed rows too (no deleted_at filter) and selects deleted_at so
+// callers that must distinguish live from trashed — purge's guards — can.
 export function getEntrySql(id: string): SqlQuery {
   return {
-    text: `SELECT ${COLUMNS} FROM entries WHERE id = $1`,
+    text: `SELECT ${COLUMNS}, deleted_at FROM entries WHERE id = $1`,
     values: [id],
   };
 }
@@ -131,6 +133,26 @@ export function deleteEntrySql(id: string): SqlQuery {
 export function softDeleteEntrySql(id: string): SqlQuery {
   return {
     text: `UPDATE entries SET deleted_at = now(), updated_at = now() WHERE id = $1 AND deleted_at IS NULL RETURNING id`,
+    values: [id],
+  };
+}
+
+// Trash view (issue #27): trashed rows only, newest-trashed first. Same shape
+// as listEntriesSql plus deleted_at, so trashed rows parse with the same
+// row-mapping code and payload shape as live ones.
+export function listTrashedSql(limit = 50): SqlQuery {
+  return {
+    text: `SELECT ${COLUMNS}, deleted_at, ${PHOTO_COUNT_COLUMN} FROM entries WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC LIMIT $1`,
+    values: [limit],
+  };
+}
+
+// Un-trash: clears deleted_at so the entry reappears in lists/search. The
+// `AND deleted_at IS NOT NULL` guard mirrors softDeleteEntrySql — restoring a
+// live (or unknown) entry returns no row, so the caller can 404.
+export function restoreEntrySql(id: string): SqlQuery {
+  return {
+    text: `UPDATE entries SET deleted_at = NULL, updated_at = now() WHERE id = $1 AND deleted_at IS NOT NULL RETURNING id`,
     values: [id],
   };
 }
@@ -190,5 +212,8 @@ export function rowToEntry(row: EntryRow): EntryRecord {
     // PHOTO_COUNT_COLUMN subselect); absent on getEntrySql/insert rows, where
     // row.photo_count is undefined and this stays undefined too.
     photoCount: row.photo_count == null ? undefined : Number(row.photo_count),
+    // Only present on rows whose SELECT carries deleted_at (getEntrySql,
+    // listTrashedSql) AND that are actually trashed; undefined on live rows.
+    deletedAt: row.deleted_at == null ? undefined : toIso(row.deleted_at),
   };
 }
