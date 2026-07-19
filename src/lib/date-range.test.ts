@@ -19,6 +19,12 @@ describe("formatEntryDateRange", () => {
     );
   });
 
+  it("spans same month across different years", () => {
+    expect(formatEntryDateRange("1994-03-01T12:00:00Z", "1995-03-15T12:00:00Z")).toBe(
+      "Mar 1994 – Mar 1995",
+    );
+  });
+
   it("spans years", () => {
     expect(formatEntryDateRange("1994-03-01T12:00:00Z", "1995-06-15T12:00:00Z")).toBe(
       "Mar 1994 – Jun 1995",

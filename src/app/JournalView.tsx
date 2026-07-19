@@ -49,6 +49,9 @@ export default function JournalView({ journalId }: { journalId: string }) {
   }, [journalId]);
 
   const range = summary ? formatEntryDateRange(summary.firstEntryAt, summary.lastEntryAt) : null;
+  // Live count: the summaries snapshot goes stale when onTrashed removes a row
+  // locally, so prefer the loaded entries list; fall back while still loading.
+  const entryCount = entries ? entries.length : summary?.entryCount;
 
   return (
     <section className="flex flex-col gap-3">
@@ -66,7 +69,7 @@ export default function JournalView({ journalId }: { journalId: string }) {
         <div className="flex flex-col gap-1">
           <h2 className="text-sm font-medium text-foreground/90">{summary.label}</h2>
           <p className="text-xs text-foreground/50">
-            {summary.entryCount} {summary.entryCount === 1 ? "entry" : "entries"}
+            {entryCount} {entryCount === 1 ? "entry" : "entries"}
             {range && ` · ${range}`}
           </p>
         </div>
