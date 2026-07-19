@@ -11,7 +11,6 @@ import { primaryAction, guardBusy, type SaveState } from "@/lib/recorder-state";
 import { buildEntryFormData } from "@/lib/entry-form";
 import { downscalePhoto } from "@/lib/image";
 import { writtenAtIso } from "@/lib/written-at";
-import { SAVE_BYTES_BUDGET } from "@/lib/payload-size";
 import { planSave } from "@/lib/save-plan";
 import { useRecorder, type RecordingResult } from "./useRecorder";
 import { useJournals } from "./useJournals";
@@ -84,22 +83,9 @@ export default function RecorderClient() {
   const onStop = useCallback(
     (result: RecordingResult) => {
       const transcript = editorRef.current?.getValue().trim() ?? "";
-      const plan = planSave(
-        transcript,
-        result.audioBlob?.size ?? 0,
-        pendingPhotos.map((p) => p.blob.size),
-        SAVE_BYTES_BUDGET,
-      );
-      if (plan.kind === "empty") {
+      if (planSave(transcript).kind === "empty") {
         setSaveError(
           "Nothing to save — the transcript was empty when the session ended. Any attached photos are still here; record or dictate again and they'll be included.",
-        );
-        setSaveState("error");
-        return;
-      }
-      if (plan.kind === "too-large") {
-        setSaveError(
-          "Save is too large for one upload — remove a photo, then tap Record and Done to save again (the transcript and photos are kept).",
         );
         setSaveState("error");
         return;

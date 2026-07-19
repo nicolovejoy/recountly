@@ -165,13 +165,13 @@ export function planSave(transcript: string): SavePlan;   // empty when trimmed 
 stores `audioProxyPath(entryId)`.
 
 **Steps:**
-- [ ] Failing tests: `buildSaveBody`/`parseSaveBody` round-trip; parse rejects (bad id,
+- [x] Failing tests: `buildSaveBody`/`parseSaveBody` round-trip; parse rejects (bad id,
   photo missing id, non-image photo mime, non-audio audio mime, negative bytes) with a
   problems list; `planSave` empty vs save.
-- [ ] Implement; update the RecorderClient `planSave` call site to the 1-arg form (it
+- [x] Implement; update the RecorderClient `planSave` call site to the 1-arg form (it
   still branches to the empty-transcript error toast); delete `payload-size.ts` + test.
   `pnpm test && pnpm lint && pnpm build` green.
-- [ ] Commit: `feat(save): JSON save contract (save-payload) + planSave empty-only (#23)`
+- [x] Commit: `feat(save): JSON save contract (save-payload) + planSave empty-only (#23)`
 
 ---
 
