@@ -13,12 +13,13 @@ vi.mock("@/lib/purge", () => ({ purgeTrashedEntry: vi.fn() }));
 vi.mock("@/lib/db", () => ({
   deleteEntry: vi.fn(),
   deletePhotosByEntry: vi.fn(),
+  deleteEntryMovesByEntry: vi.fn(),
 }));
 
 import { DELETE } from "./route";
 import { getServerSession } from "@/lib/auth-server";
 import { purgeTrashedEntry } from "@/lib/purge";
-import { deleteEntry, deletePhotosByEntry } from "@/lib/db";
+import { deleteEntry, deletePhotosByEntry, deleteEntryMovesByEntry } from "@/lib/db";
 
 const mockSession = vi.mocked(getServerSession);
 const mockPurge = vi.mocked(purgeTrashedEntry);
@@ -66,13 +67,15 @@ describe("DELETE /api/entries/[id]/purge", () => {
     // reach for the hard-delete helpers.
     expect(deleteEntry).not.toHaveBeenCalled();
     expect(deletePhotosByEntry).not.toHaveBeenCalled();
+    expect(deleteEntryMovesByEntry).not.toHaveBeenCalled();
   });
 
-  it("never calls the hard-delete helpers directly even on success", async () => {
+  it("never calls the hard-delete helpers directly even on success (moved-then-purged included)", async () => {
     mockPurge.mockResolvedValue("purged");
     await call("e1");
     expect(deleteEntry).not.toHaveBeenCalled();
     expect(deletePhotosByEntry).not.toHaveBeenCalled();
+    expect(deleteEntryMovesByEntry).not.toHaveBeenCalled();
   });
 
   it("500s with detail when purge throws", async () => {

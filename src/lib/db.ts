@@ -15,6 +15,8 @@ import {
   restoreEntrySql,
   updateEnrichmentSql,
   listUnenrichedSql,
+  moveEntrySql,
+  deleteEntryMovesByEntrySql,
   rowToEntry,
   type EntryRow,
   type SearchFilters,
@@ -161,6 +163,34 @@ export async function listUnenriched(
   const { text, values } = listUnenrichedSql(limit);
   const rows = await runner.query(text, values);
   return rows.map(rowToEntry);
+}
+
+// Move an entry between journals (issue #28), or to/from Unfiled (null). The
+// route pre-checks entry existence/liveness and target-journal existence and
+// skips calling this on a same-journal no-op — this only runs the atomic
+// UPDATE+log INSERT (from_journal_id is captured inside the SQL itself, not
+// passed in — see moveEntrySql). Returns whether a live row actually matched
+// (false = the entry was deleted/removed between the pre-check and this
+// call — a rare race, treated like any other "not found").
+export async function moveEntry(
+  id: string,
+  toJournalId: string | null,
+  runner: QueryRunner = defaultRunner(),
+): Promise<boolean> {
+  const { text, values } = moveEntrySql(id, toJournalId);
+  const rows = await runner.query(text, values);
+  return rows.length > 0;
+}
+
+// Purge (issue #27/#28): clears an entry's move-log rows before the hard
+// entry delete (no ON DELETE CASCADE on entry_moves.entry_id) — same idiom
+// as deletePhotosByEntry.
+export async function deleteEntryMovesByEntry(
+  entryId: string,
+  runner: QueryRunner = defaultRunner(),
+): Promise<void> {
+  const { text, values } = deleteEntryMovesByEntrySql(entryId);
+  await runner.query(text, values);
 }
 
 // Journals (physical-journal archive).

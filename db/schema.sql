@@ -87,3 +87,15 @@ CREATE INDEX IF NOT EXISTS photos_entry_id ON photos (entry_id);
 -- List ordering and search date filters use this expression.
 CREATE INDEX IF NOT EXISTS entries_effective_at_desc
   ON entries ((coalesce(written_at, recorded_at)) DESC);
+
+-- Move-entry audit log (issue #28). Append-only — no UPDATE/DELETE path in the
+-- app. Written atomically with the entries.journal_id UPDATE (moveEntrySql's
+-- data-modifying CTE); null journal ids mean Unfiled on either side.
+CREATE TABLE IF NOT EXISTS entry_moves (
+  id              bigserial   PRIMARY KEY,
+  entry_id        text        NOT NULL REFERENCES entries(id),
+  from_journal_id text        REFERENCES journals(id),
+  to_journal_id   text        REFERENCES journals(id),
+  moved_at        timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS entry_moves_entry_id ON entry_moves (entry_id);
