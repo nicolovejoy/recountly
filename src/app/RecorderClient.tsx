@@ -10,7 +10,8 @@ import { primaryAction } from "@/lib/recorder-state";
 import { buildEntryFormData } from "@/lib/entry-form";
 import { downscalePhoto } from "@/lib/image";
 import { writtenAtIso } from "@/lib/written-at";
-import { savePayloadBytes, SAVE_BYTES_BUDGET } from "@/lib/payload-size";
+import { SAVE_BYTES_BUDGET } from "@/lib/payload-size";
+import { planSave } from "@/lib/save-plan";
 import { useRecorder, type RecordingResult } from "./useRecorder";
 import { useJournals } from "./useJournals";
 import TranscriptEditor, { type TranscriptEditorHandle } from "./TranscriptEditor";
@@ -21,7 +22,7 @@ import EntryList from "./EntryList";
 import JournalBar from "./JournalBar";
 import PhotoTray from "./PhotoTray";
 
-type SaveState = "idle" | "saving" | "saved" | "error";
+type SaveState = "idle" | "finishing" | "saving" | "saved" | "error";
 
 // Inlined at build time from next.config.ts (PST, "MM/DD/YYYY HH:MM").
 const BUILD_TIME = process.env.NEXT_PUBLIC_BUILD_TIME;
@@ -31,6 +32,14 @@ export default function RecorderClient() {
   const [reloadKey, setReloadKey] = useState(0);
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const [saveError, setSaveError] = useState<string | null>(null);
+
+  // "Saved ✓" is a fixed toast (see below) — clear it so it doesn't sit over
+  // the page forever. Errors stay until explicitly dismissed.
+  useEffect(() => {
+    if (saveState !== "saved") return;
+    const t = setTimeout(() => setSaveState("idle"), 4000);
+    return () => clearTimeout(t);
+  }, [saveState]);
 
   const { journals, active, error: journalsError, create, setActive } = useJournals();
   const [writtenDate, setWrittenDate] = useState("");
@@ -80,15 +89,20 @@ export default function RecorderClient() {
   const onStop = useCallback(
     (result: RecordingResult) => {
       const transcript = editorRef.current?.getValue().trim() ?? "";
-      if (!transcript) {
-        setSaveState("idle");
-        return;
-      }
-      const totalBytes = savePayloadBytes(
+      const plan = planSave(
+        transcript,
         result.audioBlob?.size ?? 0,
         pendingPhotos.map((p) => p.blob.size),
+        SAVE_BYTES_BUDGET,
       );
-      if (totalBytes > SAVE_BYTES_BUDGET) {
+      if (plan.kind === "empty") {
+        setSaveError(
+          "Nothing to save — the transcript was empty when the session ended. Any attached photos are still here; record or dictate again and they'll be included.",
+        );
+        setSaveState("error");
+        return;
+      }
+      if (plan.kind === "too-large") {
         setSaveError(
           "Save is too large for one upload — remove a photo, then tap Record and Done to save again (the transcript and photos are kept).",
         );
@@ -185,7 +199,10 @@ export default function RecorderClient() {
         <RecStatusLine status={status} elapsedSec={elapsedSec} meterRef={meterRef} />
         {inSession && (
           <button
-            onClick={stop}
+            onClick={() => {
+              setSaveState("finishing");
+              stop();
+            }}
             className="rounded-full border border-foreground/20 px-4 py-1 text-sm text-foreground/70 transition-colors hover:bg-foreground/[0.06]"
           >
             Done
@@ -234,12 +251,36 @@ export default function RecorderClient() {
 
       <TranscriptEditor ref={editorRef} interim={interim} />
 
-      {saveState === "saving" && <p className="text-xs text-foreground/40">Saving…</p>}
-      {saveState === "saved" && <p className="text-xs text-green-600">Saved ✓</p>}
-      {saveState === "error" && (
-        <p className="rounded-lg border border-red-500/30 bg-red-500/5 px-4 py-3 text-sm text-red-500">
-          Couldn’t save: {saveError}
-        </p>
+      {/* Save status lives in a fixed toast, not inline — on a phone the area
+          below the transcript is often beneath the fold, which made save
+          feedback (and the save-failure banner) invisible right when it
+          mattered. */}
+      {saveState !== "idle" && (
+        <div className="fixed inset-x-0 top-3 z-50 flex justify-center px-4">
+          {saveState === "error" ? (
+            <div className="flex max-w-md items-start gap-3 rounded-lg border border-red-500/40 bg-background px-4 py-3 text-sm text-red-500 shadow-lg">
+              <span>Couldn’t save: {saveError}</span>
+              <button
+                type="button"
+                onClick={() => setSaveState("idle")}
+                aria-label="Dismiss"
+                className="shrink-0 text-red-500/70 hover:text-red-500"
+              >
+                ✕
+              </button>
+            </div>
+          ) : (
+            <p
+              className={`rounded-full border border-foreground/15 bg-background px-4 py-1.5 text-sm shadow-lg ${
+                saveState === "saved" ? "text-green-600" : "text-foreground/70"
+              }`}
+            >
+              {saveState === "finishing" && "Finishing…"}
+              {saveState === "saving" && "Saving…"}
+              {saveState === "saved" && "Saved ✓"}
+            </p>
+          )}
+        </div>
       )}
 
       <EntryList reloadKey={reloadKey} journals={journals} />
