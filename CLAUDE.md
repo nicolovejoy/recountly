@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Project status: nav shell shipped (2026-07-19, PR #32) — live on recountly.org, auth-gated. Capture/Library/Search bottom tabs, journal/unfiled/trash views, reading-order journal browsing, trash UI (#27, PR #31). 334 vitest tests. Design doc merged to `docs/organization-and-navigation.md`.
+## Project status: durable save (#23 A+B), move entries (#28), nav polish + audio-duration fix (#41) all shipped 2026-07-19 (PRs #37/#42/#43/#44) — live on recountly.org, auth-gated. Capture/Library/Search tabs, journals, trash, FTS search, move + audit log. 407 vitest tests. Design of record: `docs/organization-and-navigation.md`.
 
 Live transcription works end-to-end: speak and words appear via a direct browser→OpenAI
 WebRTC connection (mic meter + in-app error surfacing in place). The transcript is now an
@@ -185,27 +185,20 @@ clamped or photos exist (`photo_count` in list/search payloads). **242 vitest te
 ⚠️ Process lesson: PR previews look like deploys — **smoke tests must first check the header
 build timestamp**; prod only redeploys on merge to main.
 
-**Org & navigation redesign APPROVED (2026-07-18, issues #27–#30).** Owner reviewed a clickable
-mockup and approved: Capture/Library/Search bottom tabs (entry list leaves Capture), journals-as-
-folders Library with Unfiled + Trash, reading-order journal view, **reading sessions as UI flow
-not schema** (nullable `entries.page_label` + sticky journal/date/page suggestion in Capture —
-supports half-page or multi-page chunks with 0..n photos each), trash as the only place with
-permanence (purge two confirms deep), `PATCH` move-entry, and search growing into the power tool
-**over time, not at launch** (URL-as-state + composable filter chips). Route-level integration
-tests are REQUIRED for these features. Design of record: `docs/organization-and-navigation.md`
-on branch **`docs/org-nav-design`** (pushed, unmerged). Build order: #27 trash view → #29 nav
-shell/Library → #28 move → capture polish → search increments.
+**Org & navigation redesign (2026-07-18, issues #27–#30) — design shipped.** Approved and now
+built: bottom tabs, journals-as-folders Library with Unfiled + Trash, reading-order journal view,
+trash as the only place with permanence, `PATCH` move-entry. Still-guiding decisions: **reading
+sessions are UI flow not schema** (nullable `entries.page_label` + sticky capture suggestion —
+not yet built), search grows into the power tool **over time** (URL-as-state + filter chips, #36).
+Route-level integration tests REQUIRED for these features. Design of record:
+`docs/organization-and-navigation.md` (merged).
 
-**Shipped 2026-07-19 (this session):** #27 trash view (PR #31 — list/restore/purge routes,
-`src/lib/purge.ts` orchestration, repo's FIRST route-level integration tests via `vi.mock`
-auth/db + constructed Requests, `docs/smoke-checklist.md`); #29 nav shell Tasks 1–5 (PR #32 —
-`(tabs)` route group + fixed bottom TabBar, Capture slimmed to recorder-only, Library with
-journal cards/tappable Unfiled/`/library/trash`, reading-order `/library/[journalId]`,
-`sort`/`unfiled`/`limit` on SearchFilters with newest-path SQL byte-for-byte unchanged,
-`GET /api/journals/summaries`, capture guard disables tabs while recording OR save in flight,
-`EntryCard` extracted from `EntryList`). Task 6 (journal covers) deferred → **issue #33**.
-Plans in `docs/superpowers/plans/2026-07-1{8,9}-*.md`; built via fresh implementer+reviewer
-subagents per task + final branch review.
+**Shipped 2026-07-19 (day sessions):** #27 trash view (PR #31 — list/restore/purge routes,
+`src/lib/purge.ts`, repo's first route-level integration tests, `docs/smoke-checklist.md`);
+#29 nav shell (PR #32 — `(tabs)` route group + bottom TabBar, Library/journal/Unfiled/trash
+views, `GET /api/journals/summaries`, capture guard, `EntryCard` extracted); covers deferred
+→ #33. Phone smoke PASSED; feedback PR #34 (mother-site build stamp, Unfiled in search
+dropdown). Plans in `docs/superpowers/plans/`; built via implementer+reviewer subagents.
 
 **Stack assessment (2026-07-19, owner-requested):** stack is sound, no rewrite. Findings:
 (1) the 4.5MB body cap is the real wall (audio+photos through one function body) — fix is
@@ -216,52 +209,49 @@ window; use Next 16 `after()` or the existing backfill); (3) Node 20 is EOL → 
 unpin pnpm; (4) photo grids want a ~300px thumb variant stored at save (do with #33);
 (5) leave alone: Better Auth, FTS, dual DB drivers, private-blob proxy, serverless.
 
-**Phone smoke 2026-07-19: #32 PASSED** (all 7 steps incl. restore). Feedback shipped same
-day (PR #34): build stamp now mother-site format ("Mar 4, 2:37 pm" PT — matches
-`../selected-projects` nav.tsx / pianohouseproject.org, which the owner calls the style
-source of truth), and Search's journal dropdown gains **Unfiled** iff unfiled entries exist
-(`journalFilterToSearch` + `UNFILED_FILTER` in `src/lib/search.ts`; SearchView reads
-`/api/journals/summaries`). **338 vitest tests.**
+**#23 durable save FULLY SHIPPED (2026-07-19, PRs #37 Phase A + #44 Phase B).** Plan:
+`docs/superpowers/plans/2026-07-19-durable-save.md`. Phase A: auth-gated `POST /api/blob/upload`
+token route; client-direct PRIVATE uploads (`blob-upload.ts`; audio best-effort, photos
+fail-the-save); `POST /api/entries` is small JSON (`save-payload.ts`, client-minted ULID) with
+`keepalive` under a tested 60KB guard — 4.5MB body cap gone; enrichment via `after()`;
+idempotent inserts (entries audio-attach upsert, photos DO NOTHING). ⚠️ `onUploadCompleted`
+never fires on localhost — deliberately unused; the JSON POST is the write path. Phase B:
+`stop()` merges the interim tail (accepted rare double-append); `pagehide`/`visibilitychange`
+flush POSTs transcript-only keepalive + persists a pending record (backgrounding mid-recording
+= **implicit Done** — interacts with #38's continuous-capture ask); IndexedDB pending-save
+queue (`pending-save.ts`/`idb-pending.ts`/`PendingSaveRecovery`) persists body+Blobs before
+uploads, deletes only on full-refs 201, retries on next open (4xx purges, 5xx/network retries).
+⚠️ The entry upsert is **transcript-first-write-wins** — recovery repairs audio/photos, never
+transcript; the flush therefore merges the interim tail BEFORE reading the editor (branch
+review caught the permanent-truncation ordering bug). Phone smoke of the 3 Phase B behaviors
+(lock-after-Done, background mid-recording, airplane recovery) still pending at handoff.
 
-**#23 Phase A BUILT + local-smoke PASSED (2026-07-19 second session, PR #37 — open,
-unmerged at handoff).** Plan of record: `docs/superpowers/plans/2026-07-19-durable-save.md`
-(Tasks 1–6 done; Phase B Tasks 7–9 remain). Shipped: auth-gated `POST /api/blob/upload`
-(`handleUpload` token route; audio 100MB/photo 10MB caps, `addRandomSuffix:false`);
-client-direct PRIVATE uploads via `upload()` from `@vercel/blob/client` (`blob-upload.ts`,
-injectable; audio best-effort, photos fail-the-save); `POST /api/entries` now small JSON
-(`save-payload.ts` contract, client-minted ULID id) with `keepalive` under a tested 60KB
-byte guard — 4.5MB body cap gone; enrichment moved to stable `after()` (backfill stays);
-idempotent inserts (entries: audio-attach `ON CONFLICT DO UPDATE ... WHERE` upsert that
-bumps updated_at only when audio attaches; photos DO NOTHING) — groundwork for Phase B
-retry. Deleted `entry-form.ts` + `payload-size.ts`. 359 vitest tests. ⚠️ `onUploadCompleted`
-never fires on localhost (`process.env.VERCEL !== "1"`) — deliberately unused; the JSON
-POST is the DB write path. Built via opus/sonnet subagents (implementer + reviewer per
-task + final branch review) to conserve Fable budget — owner wants cheaper models for
-build work. Smoke feedback filed as **#38** (continuous capture / too-eager end), **#39**
-(whole-card tap + per-entry detail page), **#40** (bulk select trash/move), **#41** (audio
-player 0:00/0:00 until play — fix TDD; pre-existing, likely `/api/audio` proxy headers).
+**Shipped 2026-07-19 evening (PRs #42/#43):** wordmark → home `Link` styled as a REC lamp
+(`BrandLamp` + tested `lampStyle`; CaptureGuard carries `RecorderStatus`; green idle / neutral
+connecting / red live / blinking-red paused); journal view defaults newest-first with a sort
+menu (client-only; API already supported both); **#41 fixed TDD** — `/api/audio/[id]` answers
+real Range requests (iOS reads duration via byte-range probes; `@vercel/blob` `get()` has no
+Range passthrough so the blob is sliced server-side) + `preload="metadata"`; **#28 move
+entries** — `PATCH /api/entries/[id]` `{journalId|null}` with atomic move+`entry_moves` audit
+log in one CTE (`from_journal_id` read under `FOR UPDATE`), Move… picker on cards, bulk-file
+select mode in Unfiled. ⚠️ purge must delete `entry_moves` rows before the entry (no CASCADE —
+same idiom as photos; review caught the FK 500). Browser smoke on prod: 7/7 pass (Playwright
+subagent; profile already held a session so no credentials were handled; all moves reversed).
 
 **Next Steps**:
-- **Merge PR #37** (owner) — then phone-smoke prod per `docs/smoke-checklist.md` (build
-  stamp first). Known Phase A follow-ups (final review, non-blocking): sequential photo
-  uploads; entry-then-photo-insert DB failure leaves photoless entry + generic 500.
-- **#23 Phase B** — plan Tasks 7–9 in `docs/superpowers/plans/2026-07-19-durable-save.md`:
-  interim-tail merge on Done → pagehide/visibilitychange flush (transcript-only keepalive
-  POST, audio:null — flush 201 must NOT delete the pending record) → IndexedDB
-  pending-save queue + retry-on-open (re-upload + re-POST attach audio via the Task 1
-  upsert). Same subagent pattern.
-- **#41** audio player duration TDD fix (owner asked explicitly); good small starter task.
-- **#38/#39** capture-session UX + entry detail page (design tangle: post-save nav,
-  whole-card tap, continuous capture) — needs a short design pass before building.
-- **#35** mother-site style pass + desktop top-nav (bottom tabs mobile-only) — style
-  vocabulary captured in the issue.
-- **Node 22 + pnpm 10 chore PR (owner approved)** — before passkeys. Local Node install is
-  the owner's manual step; also verify the Vercel project's Node runtime.
-- **#28 move entries** (+ bulk-file unfiled + auditable `entry_moves` log — see issue
-  comment) → capture polish (`page_label` + sticky) → **#36** search increments (URL-as-state
-  first, then highlight/counts). **#33** journal covers (+ thumb variant) when touched.
-- Parked follow-ups still open: verify EXIF portrait orientation on iPhone, optimistic
-  journal-switch UI, photo-fetch retry after transient failure.
+- **Owner phone-smokes Phase B** per `docs/smoke-checklist.md` (build stamp first): Done→lock,
+  background mid-recording, airplane recovery. Then close **#23** (and **#30** — design + all
+  children shipped; owner to confirm).
+- **#38/#39** capture-session UX + entry detail page (post-save nav, whole-card tap,
+  continuous capture; note Phase B's backgrounding-= -implicit-Done) — short design pass first.
+- **#35** mother-site style pass + desktop top-nav (style vocabulary in the issue).
+- **Node 22 + pnpm 10 chore PR (owner approved)** — before passkeys; owner installs Node
+  locally; verify the Vercel project's Node runtime.
+- Then: capture polish (`page_label` + sticky) → **#36** search increments (URL-as-state
+  first) → **#33** covers (+ ~300px thumb variant) → **#40** remainder (bulk trash, select in
+  journal/search views). Parked: sequential photo uploads + photoless-entry 500 (Phase A
+  review nits), EXIF portrait on iPhone, optimistic journal-switch, photo-fetch retry,
+  orphan-blob purge sweep.
 - **Passkeys (WebAuthn) primary + email/password as break-glass fallback** (NOT SMS — rejected as
   weakest 2FA; NOT Sign in with Apple — needs $99 dev program). Better Auth `passkey()` plugin:
   add to `src/lib/auth.ts` (`rpID: "recountly.org"` + localhost), `passkeyClient()` in
