@@ -216,19 +216,27 @@ window; use Next 16 `after()` or the existing backfill); (3) Node 20 is EOL → 
 unpin pnpm; (4) photo grids want a ~300px thumb variant stored at save (do with #33);
 (5) leave alone: Better Auth, FTS, dual DB drivers, private-blob proxy, serverless.
 
+**Phone smoke 2026-07-19: #32 PASSED** (all 7 steps incl. restore). Feedback shipped same
+day (PR #34): build stamp now mother-site format ("Mar 4, 2:37 pm" PT — matches
+`../selected-projects` nav.tsx / pianohouseproject.org, which the owner calls the style
+source of truth), and Search's journal dropdown gains **Unfiled** iff unfiled entries exist
+(`journalFilterToSearch` + `UNFILED_FILTER` in `src/lib/search.ts`; SearchView reads
+`/api/journals/summaries`). **338 vitest tests.**
+
 **Next Steps**:
-- **Smoke-test #32 on the phone** (`docs/smoke-checklist.md` — nav section; restore flow
-  still never phone-tested).
 - **Issue #23 REPLANNED (owner approved 2026-07-19):** durable save = client-direct blob
   uploads + small JSON save with `keepalive` + IndexedDB pending-save retry on next open +
   interim-text merge on Done + lifecycle flush (pagehide/visibilitychange). The earlier
   timer/keepalive-only plan + its branch were deleted (keepalive can't carry multipart —
   64KB). ~2 sessions. Verify `@vercel/blob` client-upload API against the installed package
-  docs before planning.
+  docs before planning. Move enrichment out of the save request path in the same pass.
+- **#35** mother-site style pass + desktop top-nav (bottom tabs mobile-only) — style
+  vocabulary captured in the issue.
 - **Node 22 + pnpm 10 chore PR (owner approved)** — before passkeys. Local Node install is
   the owner's manual step; also verify the Vercel project's Node runtime.
-- **#28 move entries** → capture session polish (`page_label` + sticky) → search increments
-  (chip UI), per the design doc order. **#33** journal covers (+ thumb variant) when touched.
+- **#28 move entries** (+ bulk-file unfiled + auditable `entry_moves` log — see issue
+  comment) → capture polish (`page_label` + sticky) → **#36** search increments (URL-as-state
+  first, then highlight/counts). **#33** journal covers (+ thumb variant) when touched.
 - Parked follow-ups still open: verify EXIF portrait orientation on iPhone, optimistic
   journal-switch UI, photo-fetch retry after transient failure.
 - **Passkeys (WebAuthn) primary + email/password as break-glass fallback** (NOT SMS — rejected as
