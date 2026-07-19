@@ -10,18 +10,19 @@
 // dropped here.
 
 import { useEffect, useMemo, useState } from "react";
-import { buildSearchQueryString } from "@/lib/search";
+import { buildSearchQueryString, journalFilterToSearch } from "@/lib/search";
 import type { EntryRecord } from "@/lib/entry";
-import type { JournalRecord } from "@/lib/journal";
 import EntryCard from "./EntryCard";
 import SearchBar from "./SearchBar";
 
 export default function EntryList({
   reloadKey = 0,
   journals,
+  unfiledCount = 0,
 }: {
   reloadKey?: number;
-  journals: JournalRecord[] | null;
+  journals: { id: string; label: string }[] | null;
+  unfiledCount?: number; // > 0 surfaces the Unfiled choice in the journal filter
 }) {
   const [query, setQuery] = useState("");
   const [from, setFrom] = useState("");
@@ -49,7 +50,7 @@ export default function EntryList({
         query: debouncedQuery,
         from,
         to,
-        journalId: journalFilter || undefined,
+        ...journalFilterToSearch(journalFilter),
       }),
     [debouncedQuery, from, to, journalFilter],
   );
@@ -85,6 +86,7 @@ export default function EntryList({
         to={to}
         journal={journalFilter}
         journals={journals}
+        hasUnfiled={unfiledCount > 0}
         onChange={(p) => {
           if (p.query !== undefined) setQuery(p.query);
           if (p.from !== undefined) setFrom(p.from);

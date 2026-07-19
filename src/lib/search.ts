@@ -33,6 +33,19 @@ export function parseSearchFilters(params: URLSearchParams): SearchFilters {
   return out;
 }
 
+// The journal <select> carries one extra choice — Unfiled — that isn't a
+// journal id. The sentinel can't collide with real ids (ULIDs/imp_*).
+export const UNFILED_FILTER = "__unfiled__";
+
+// Select value → the journal-shaped part of SearchFilters. "" (all) → neither.
+export function journalFilterToSearch(
+  value: string,
+): Pick<SearchFilters, "journalId" | "unfiled"> {
+  if (!value) return {};
+  if (value === UNFILED_FILTER) return { unfiled: true };
+  return { journalId: value };
+}
+
 // Filters → "?q=…&from=…" (or "" when empty) for the client fetch URL.
 export function buildSearchQueryString(f: SearchFilters): string {
   const params = new URLSearchParams();
