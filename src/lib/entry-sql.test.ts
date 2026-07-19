@@ -5,6 +5,7 @@ import {
   searchEntriesSql,
   getEntrySql,
   deleteEntrySql,
+  softDeleteEntrySql,
   updateEnrichmentSql,
   listUnenrichedSql,
   rowToEntry,
@@ -77,15 +78,41 @@ describe("listEntriesSql", () => {
   it("defaults the limit to 50", () => {
     expect(listEntriesSql().values).toEqual([50]);
   });
+
+  it("excludes trashed entries", () => {
+    const q = listEntriesSql();
+    expect(q.text).toContain("WHERE deleted_at IS NULL");
+  });
+
+  it("includes a photo_count subselect", () => {
+    const q = listEntriesSql();
+    expect(q.text).toContain(
+      "(SELECT count(*)::int FROM photos p WHERE p.entry_id = entries.id) AS photo_count",
+    );
+  });
 });
 
 describe("searchEntriesSql", () => {
-  it("with no filters behaves like the newest-first list", () => {
+  it("with no filters excludes trashed entries and behaves like the newest-first list", () => {
     const q = searchEntriesSql();
-    expect(q.text).not.toContain("WHERE");
+    expect(q.text).toContain("WHERE deleted_at IS NULL");
     expect(q.text).toContain("ORDER BY coalesce(written_at, recorded_at) DESC");
     expect(q.text).toContain("LIMIT $1");
     expect(q.values).toEqual([50]);
+  });
+
+  it("always excludes trashed entries alongside other filters", () => {
+    const q = searchEntriesSql({ query: "walk", journalId: "01JRNL" });
+    expect(q.text).toContain("deleted_at IS NULL");
+    // No placeholder is consumed by the exclusion — the query text placeholder stays $1.
+    expect(q.values).toEqual(["walk", "01JRNL", 50]);
+  });
+
+  it("includes a photo_count subselect", () => {
+    const q = searchEntriesSql();
+    expect(q.text).toContain(
+      "(SELECT count(*)::int FROM photos p WHERE p.entry_id = entries.id) AS photo_count",
+    );
   });
 
   it("ranks by relevance when a query is present, reusing one placeholder", () => {
@@ -143,6 +170,16 @@ describe("deleteEntrySql", () => {
   });
 });
 
+describe("softDeleteEntrySql", () => {
+  it("marks the entry trashed (deleted_at + updated_at = now), returning the id", () => {
+    const q = softDeleteEntrySql("abc");
+    expect(q.text).toBe(
+      "UPDATE entries SET deleted_at = now(), updated_at = now() WHERE id = $1 AND deleted_at IS NULL RETURNING id",
+    );
+    expect(q.values).toEqual(["abc"]);
+  });
+});
+
 describe("updateEnrichmentSql", () => {
   const enrichment: EntryEnrichment = {
     title: "A Morning Walk",
@@ -180,6 +217,11 @@ describe("listUnenrichedSql", () => {
     expect(q.text).toContain("ORDER BY recorded_at DESC");
     expect(q.text).toContain("LIMIT $1");
     expect(q.values).toEqual([10]);
+  });
+
+  it("excludes trashed entries (don't enrich trash)", () => {
+    const q = listUnenrichedSql();
+    expect(q.text).toContain("deleted_at IS NULL");
   });
 
   it("defaults the limit to 50", () => {
@@ -284,6 +326,41 @@ describe("rowToEntry", () => {
       audio_complete: false,
     });
     expect(entry.audioComplete).toBe(false);
+  });
+
+  it("maps photo_count when present", () => {
+    const entry = rowToEntry({
+      id: "01HX",
+      recorded_at: "2026-06-13T01:00:00.000Z",
+      created_at: "2026-06-13T01:00:05.000Z",
+      updated_at: "2026-06-13T01:00:05.000Z",
+      duration_seconds: 10,
+      transcript: "hello",
+      title: null,
+      tags: [],
+      audio_url: null,
+      audio_mime: null,
+      audio_bytes: null,
+      photo_count: 3,
+    });
+    expect(entry.photoCount).toBe(3);
+  });
+
+  it("leaves photoCount undefined when the column is absent (getEntrySql/insert rows)", () => {
+    const entry = rowToEntry({
+      id: "01HX",
+      recorded_at: "2026-06-13T01:00:00.000Z",
+      created_at: "2026-06-13T01:00:05.000Z",
+      updated_at: "2026-06-13T01:00:05.000Z",
+      duration_seconds: 10,
+      transcript: "hello",
+      title: null,
+      tags: [],
+      audio_url: null,
+      audio_mime: null,
+      audio_bytes: null,
+    });
+    expect(entry.photoCount).toBeUndefined();
   });
 });
 

@@ -66,6 +66,10 @@ CREATE TABLE IF NOT EXISTS journals (
 ALTER TABLE entries ADD COLUMN IF NOT EXISTS journal_id text REFERENCES journals(id);
 ALTER TABLE entries ADD COLUMN IF NOT EXISTS written_at timestamptz;
 
+-- Soft-delete (trash): null = live; a trashed entry keeps its row + audio/photo
+-- blobs for recovery — deleting hides it everywhere but destroys nothing.
+ALTER TABLE entries ADD COLUMN IF NOT EXISTS deleted_at timestamptz;
+
 -- Page photos, 1 entry — * photos. Blobs are PRIVATE, named photos/<id>.<ext>
 -- (path derived from id — no URL column), served via the auth-gated
 -- GET /api/photo/[id] proxy. Photos are NOT best-effort: a failed upload

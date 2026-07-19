@@ -18,6 +18,13 @@ export interface SqlQuery {
 const COLUMNS =
   "id, recorded_at, created_at, updated_at, duration_seconds, transcript, title, tags, audio_url, audio_mime, audio_bytes, audio_complete, summary, enriched_at, enrichment_model, journal_id, written_at";
 
+// Appended only to the list/search SELECTs (not the shared COLUMNS used by
+// insert/get) — the entry list UI needs a photo count to decide whether an
+// entry with a short transcript still needs the expand toggle (photos only
+// show when expanded).
+const PHOTO_COUNT_COLUMN =
+  "(SELECT count(*)::int FROM photos p WHERE p.entry_id = entries.id) AS photo_count";
+
 export function insertEntrySql(rec: EntryRecord): SqlQuery {
   return {
     text: `INSERT INTO entries (${COLUMNS}) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
@@ -45,10 +52,11 @@ export function insertEntrySql(rec: EntryRecord): SqlQuery {
 
 // Newest-first list for the entry index (Phase 2). Uses the effective date
 // (coalesce(written_at, recorded_at)) so archived journal pages sort by when
-// they were written, not when they were transcribed in.
+// they were written, not when they were transcribed in. Trashed entries
+// (soft-deleted — deleted_at set) are excluded everywhere they're listed.
 export function listEntriesSql(limit = 50): SqlQuery {
   return {
-    text: `SELECT ${COLUMNS} FROM entries ORDER BY coalesce(written_at, recorded_at) DESC LIMIT $1`,
+    text: `SELECT ${COLUMNS}, ${PHOTO_COUNT_COLUMN} FROM entries WHERE deleted_at IS NULL ORDER BY coalesce(written_at, recorded_at) DESC LIMIT $1`,
     values: [limit],
   };
 }
@@ -66,7 +74,9 @@ export interface SearchFilters {
 
 export function searchEntriesSql(f: SearchFilters = {}): SqlQuery {
   const EFFECTIVE_AT = "coalesce(written_at, recorded_at)";
-  const where: string[] = [];
+  // Trashed entries (deleted_at set) are excluded unconditionally — no
+  // placeholder needed, so it doesn't shift any of the numbered params below.
+  const where: string[] = ["deleted_at IS NULL"];
   const values: unknown[] = [];
   let p = 0;
   const next = (v: unknown) => {
@@ -86,13 +96,13 @@ export function searchEntriesSql(f: SearchFilters = {}): SqlQuery {
   if (f.from) where.push(`${EFFECTIVE_AT} >= ${next(f.from)}::date`);
   if (f.to) where.push(`${EFFECTIVE_AT} < (${next(f.to)}::date + 1)`);
 
-  const whereSql = where.length ? ` WHERE ${where.join(" AND ")}` : "";
+  const whereSql = ` WHERE ${where.join(" AND ")}`;
   const orderSql = rankExpr
     ? ` ORDER BY ${rankExpr} DESC, ${EFFECTIVE_AT} DESC`
     : ` ORDER BY ${EFFECTIVE_AT} DESC`;
   const limitPh = next(f.limit ?? 50);
   return {
-    text: `SELECT ${COLUMNS} FROM entries${whereSql}${orderSql} LIMIT ${limitPh}`,
+    text: `SELECT ${COLUMNS}, ${PHOTO_COUNT_COLUMN} FROM entries${whereSql}${orderSql} LIMIT ${limitPh}`,
     values,
   };
 }
@@ -113,6 +123,18 @@ export function deleteEntrySql(id: string): SqlQuery {
   };
 }
 
+// Soft-delete (trash): marks the row deleted_at = now() instead of destroying
+// it — rows and audio/photo blobs are kept for later recovery/purge. The
+// `AND deleted_at IS NULL` guard makes this idempotent-safe: re-deleting an
+// already-trashed entry returns no row rather than re-stamping deleted_at.
+// RETURNING id lets the caller tell "trashed" from "no such (live) row".
+export function softDeleteEntrySql(id: string): SqlQuery {
+  return {
+    text: `UPDATE entries SET deleted_at = now(), updated_at = now() WHERE id = $1 AND deleted_at IS NULL RETURNING id`,
+    values: [id],
+  };
+}
+
 // Phase 4 enrichment backfill: write the LLM fields onto an existing row and
 // bump updated_at. Takes the enrichment plus the id and a now-ISO timestamp.
 export function updateEnrichmentSql(
@@ -126,10 +148,12 @@ export function updateEnrichmentSql(
   };
 }
 
-// Rows that have never been enriched (newest-first), for the backfill endpoint.
+// Rows that have never been enriched (newest-first), for the backfill
+// endpoint. Excludes trashed entries — don't spend an LLM call enriching
+// something the owner just moved to trash.
 export function listUnenrichedSql(limit = 50): SqlQuery {
   return {
-    text: `SELECT ${COLUMNS} FROM entries WHERE enriched_at IS NULL ORDER BY recorded_at DESC LIMIT $1`,
+    text: `SELECT ${COLUMNS} FROM entries WHERE enriched_at IS NULL AND deleted_at IS NULL ORDER BY recorded_at DESC LIMIT $1`,
     values: [limit],
   };
 }
@@ -162,5 +186,9 @@ export function rowToEntry(row: EntryRow): EntryRecord {
     audioComplete: row.audio_complete == null ? null : Boolean(row.audio_complete),
     journalId: row.journal_id == null ? null : String(row.journal_id),
     writtenAt: row.written_at == null ? null : toIso(row.written_at),
+    // Only present on rows from listEntriesSql/searchEntriesSql (the
+    // PHOTO_COUNT_COLUMN subselect); absent on getEntrySql/insert rows, where
+    // row.photo_count is undefined and this stays undefined too.
+    photoCount: row.photo_count == null ? undefined : Number(row.photo_count),
   };
 }
