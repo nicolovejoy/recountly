@@ -34,6 +34,8 @@ export default function EntryList({
   const [entries, setEntries] = useState<EntryRecord[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const journalLabel = useMemo(() => {
     const m = new Map<string, string>();
@@ -104,6 +106,33 @@ export default function EntryList({
     }
   }
 
+  async function handleDelete(id: string) {
+    if (!window.confirm("Delete this entry permanently? Its audio and photos are deleted too.")) {
+      return;
+    }
+    setDeletingId(id);
+    setDeleteError(null);
+    try {
+      const res = await fetch(`/api/entries/${id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error(`delete route ${res.status}`);
+      setEntries((prev) => prev?.filter((e) => e.id !== id) ?? prev);
+      setExpanded((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+      setPhotosByEntry((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
   return (
     <section className="flex flex-col gap-3">
       <h2 className="text-sm font-medium text-foreground/50">Entries</h2>
@@ -132,6 +161,10 @@ export default function EntryList({
         <p className="text-sm text-red-500">Couldn’t load entries: {error}</p>
       )}
 
+      {deleteError && (
+        <p className="text-sm text-red-500">Couldn’t delete entry: {deleteError}</p>
+      )}
+
       {entries && entries.length === 0 && !error && (
         <p className="text-sm text-foreground/40">
           {isSearching ? "No entries match." : "No entries yet — record one above."}
@@ -150,8 +183,18 @@ export default function EntryList({
                 <span className="text-sm font-medium text-foreground/90">
                   {e.title ?? formatWhen(e.recordedAt)}
                 </span>
-                <span className="shrink-0 text-xs tabular-nums text-foreground/50">
-                  {formatElapsed(e.durationSeconds)}
+                <span className="flex shrink-0 items-baseline gap-2">
+                  <span className="text-xs tabular-nums text-foreground/50">
+                    {formatElapsed(e.durationSeconds)}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => handleDelete(e.id)}
+                    disabled={deletingId === e.id}
+                    className="text-xs text-foreground/40 hover:text-red-500 disabled:opacity-50"
+                  >
+                    {deletingId === e.id ? "Deleting…" : "Delete"}
+                  </button>
                 </span>
               </div>
               {e.title && (

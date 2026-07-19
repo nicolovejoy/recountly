@@ -6,6 +6,7 @@ import {
   insertPhotoSql,
   listPhotosByEntrySql,
   getPhotoSql,
+  deletePhotosByEntrySql,
   rowToPhoto,
   uploadPhoto,
   type PhotoRecord,
@@ -59,6 +60,11 @@ describe("photo SQL builders", () => {
     const q = getPhotoSql("01PHOTO");
     expect(q.text).toContain("WHERE id = $1");
     expect(q.values).toEqual(["01PHOTO"]);
+  });
+  it("deletePhotosByEntrySql deletes all photos for an entry", () => {
+    const q = deletePhotosByEntrySql("01ENTRY");
+    expect(q.text).toBe("DELETE FROM photos WHERE entry_id = $1");
+    expect(q.values).toEqual(["01ENTRY"]);
   });
 });
 

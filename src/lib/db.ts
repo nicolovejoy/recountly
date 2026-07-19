@@ -9,6 +9,7 @@ import {
   listEntriesSql,
   searchEntriesSql,
   getEntrySql,
+  deleteEntrySql,
   updateEnrichmentSql,
   listUnenrichedSql,
   rowToEntry,
@@ -27,6 +28,7 @@ import {
   insertPhotoSql,
   listPhotosByEntrySql,
   getPhotoSql,
+  deletePhotosByEntrySql,
   rowToPhoto,
   type PhotoRecord,
 } from "./photo";
@@ -86,6 +88,17 @@ export async function getEntry(
   const { text, values } = getEntrySql(id);
   const rows = await runner.query(text, values);
   return rows.length ? rowToEntry(rows[0]) : null;
+}
+
+// Issue #9 delete. Returns whether a row was actually deleted (false = no such
+// id), via RETURNING id rather than a separate existence check.
+export async function deleteEntry(
+  id: string,
+  runner: QueryRunner = defaultRunner(),
+): Promise<boolean> {
+  const { text, values } = deleteEntrySql(id);
+  const rows = await runner.query(text, values);
+  return rows.length > 0;
 }
 
 // Phase 4 enrichment: write the LLM fields onto an existing row.
@@ -161,4 +174,14 @@ export async function getPhoto(
   const { text, values } = getPhotoSql(id);
   const rows = await runner.query(text, values);
   return rows.length ? rowToPhoto(rows[0]) : null;
+}
+
+// Issue #9 delete: must run before deleteEntry (no ON DELETE CASCADE on
+// photos.entry_id).
+export async function deletePhotosByEntry(
+  entryId: string,
+  runner: QueryRunner = defaultRunner(),
+): Promise<void> {
+  const { text, values } = deletePhotosByEntrySql(entryId);
+  await runner.query(text, values);
 }

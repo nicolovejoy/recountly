@@ -4,6 +4,7 @@ import {
   listEntriesSql,
   searchEntriesSql,
   getEntrySql,
+  deleteEntrySql,
   updateEnrichmentSql,
   listUnenrichedSql,
   rowToEntry,
@@ -130,6 +131,14 @@ describe("getEntrySql", () => {
   it("filters by id via a placeholder", () => {
     const q = getEntrySql("abc");
     expect(q.text).toContain("WHERE id = $1");
+    expect(q.values).toEqual(["abc"]);
+  });
+});
+
+describe("deleteEntrySql", () => {
+  it("deletes by id, returning the id", () => {
+    const q = deleteEntrySql("abc");
+    expect(q.text).toBe("DELETE FROM entries WHERE id = $1 RETURNING id");
     expect(q.values).toEqual(["abc"]);
   });
 });
