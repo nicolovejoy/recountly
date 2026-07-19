@@ -112,9 +112,9 @@ non-trashed id.
 - No component tests (house style); any new pure logic goes to `src/lib` + tests.
 
 **Steps:**
-- [ ] Implement; `pnpm test && pnpm lint && pnpm build` green; check the view renders
+- [x] Implement; `pnpm test && pnpm lint && pnpm build` green; check the view renders
   in `pnpm dev`.
-- [ ] Commit: `feat: trash view — list, restore, delete forever, empty trash (#27)`
+- [x] Commit: `feat: trash view — list, restore, delete forever, empty trash (#27)`
 
 ---
 

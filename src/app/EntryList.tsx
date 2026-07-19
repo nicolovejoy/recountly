@@ -75,9 +75,11 @@ function EntryTranscript({
 export default function EntryList({
   reloadKey,
   journals,
+  onShowTrash,
 }: {
   reloadKey: number;
   journals: JournalRecord[] | null;
+  onShowTrash: () => void;
 }) {
   const [query, setQuery] = useState("");
   const [from, setFrom] = useState("");
@@ -192,7 +194,16 @@ export default function EntryList({
 
   return (
     <section className="flex flex-col gap-3">
-      <h2 className="text-sm font-medium text-foreground/50">Entries</h2>
+      <div className="flex items-baseline justify-between gap-3">
+        <h2 className="text-sm font-medium text-foreground/50">Entries</h2>
+        <button
+          type="button"
+          onClick={onShowTrash}
+          className="text-xs text-foreground/40 hover:text-foreground/70"
+        >
+          Trash
+        </button>
+      </div>
 
       <SearchBar
         query={query}
@@ -250,7 +261,7 @@ export default function EntryList({
                     disabled={deletingId === e.id}
                     className="text-xs text-foreground/40 hover:text-red-500 disabled:opacity-50"
                   >
-                    {deletingId === e.id ? "Deleting…" : "Delete"}
+                    {deletingId === e.id ? "Trashing…" : "Trash"}
                   </button>
                 </span>
               </div>
