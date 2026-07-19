@@ -223,13 +223,36 @@ source of truth), and Search's journal dropdown gains **Unfiled** iff unfiled en
 (`journalFilterToSearch` + `UNFILED_FILTER` in `src/lib/search.ts`; SearchView reads
 `/api/journals/summaries`). **338 vitest tests.**
 
+**#23 Phase A BUILT + local-smoke PASSED (2026-07-19 second session, PR #37 — open,
+unmerged at handoff).** Plan of record: `docs/superpowers/plans/2026-07-19-durable-save.md`
+(Tasks 1–6 done; Phase B Tasks 7–9 remain). Shipped: auth-gated `POST /api/blob/upload`
+(`handleUpload` token route; audio 100MB/photo 10MB caps, `addRandomSuffix:false`);
+client-direct PRIVATE uploads via `upload()` from `@vercel/blob/client` (`blob-upload.ts`,
+injectable; audio best-effort, photos fail-the-save); `POST /api/entries` now small JSON
+(`save-payload.ts` contract, client-minted ULID id) with `keepalive` under a tested 60KB
+byte guard — 4.5MB body cap gone; enrichment moved to stable `after()` (backfill stays);
+idempotent inserts (entries: audio-attach `ON CONFLICT DO UPDATE ... WHERE` upsert that
+bumps updated_at only when audio attaches; photos DO NOTHING) — groundwork for Phase B
+retry. Deleted `entry-form.ts` + `payload-size.ts`. 359 vitest tests. ⚠️ `onUploadCompleted`
+never fires on localhost (`process.env.VERCEL !== "1"`) — deliberately unused; the JSON
+POST is the DB write path. Built via opus/sonnet subagents (implementer + reviewer per
+task + final branch review) to conserve Fable budget — owner wants cheaper models for
+build work. Smoke feedback filed as **#38** (continuous capture / too-eager end), **#39**
+(whole-card tap + per-entry detail page), **#40** (bulk select trash/move), **#41** (audio
+player 0:00/0:00 until play — fix TDD; pre-existing, likely `/api/audio` proxy headers).
+
 **Next Steps**:
-- **Issue #23 REPLANNED (owner approved 2026-07-19):** durable save = client-direct blob
-  uploads + small JSON save with `keepalive` + IndexedDB pending-save retry on next open +
-  interim-text merge on Done + lifecycle flush (pagehide/visibilitychange). The earlier
-  timer/keepalive-only plan + its branch were deleted (keepalive can't carry multipart —
-  64KB). ~2 sessions. Verify `@vercel/blob` client-upload API against the installed package
-  docs before planning. Move enrichment out of the save request path in the same pass.
+- **Merge PR #37** (owner) — then phone-smoke prod per `docs/smoke-checklist.md` (build
+  stamp first). Known Phase A follow-ups (final review, non-blocking): sequential photo
+  uploads; entry-then-photo-insert DB failure leaves photoless entry + generic 500.
+- **#23 Phase B** — plan Tasks 7–9 in `docs/superpowers/plans/2026-07-19-durable-save.md`:
+  interim-tail merge on Done → pagehide/visibilitychange flush (transcript-only keepalive
+  POST, audio:null — flush 201 must NOT delete the pending record) → IndexedDB
+  pending-save queue + retry-on-open (re-upload + re-POST attach audio via the Task 1
+  upsert). Same subagent pattern.
+- **#41** audio player duration TDD fix (owner asked explicitly); good small starter task.
+- **#38/#39** capture-session UX + entry detail page (design tangle: post-save nav,
+  whole-card tap, continuous capture) — needs a short design pass before building.
 - **#35** mother-site style pass + desktop top-nav (bottom tabs mobile-only) — style
   vocabulary captured in the issue.
 - **Node 22 + pnpm 10 chore PR (owner approved)** — before passkeys. Local Node install is

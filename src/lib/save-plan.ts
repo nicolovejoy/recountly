@@ -1,20 +1,10 @@
-import { savePayloadBytes } from "./payload-size";
+// What onStop should do when Done fires, decided in one place. With client-direct
+// blob uploads (issue #23) the only pre-save gate left is an empty transcript —
+// the 4 MB body budget is gone (uploads go straight to Blob, capped by the token
+// route, not the POST body).
+export type SavePlan = { kind: "empty" } | { kind: "save" };
 
-// What onStop should do when Done fires, decided in one place so every branch
-// (empty transcript / oversized payload / normal save) is loud and testable.
-export type SavePlan =
-  | { kind: "empty" }
-  | { kind: "too-large"; totalBytes: number }
-  | { kind: "save" };
-
-export function planSave(
-  transcript: string,
-  audioBytes: number,
-  photoBytes: number[],
-  budget: number,
-): SavePlan {
+export function planSave(transcript: string): SavePlan {
   if (transcript.trim().length === 0) return { kind: "empty" };
-  const totalBytes = savePayloadBytes(audioBytes, photoBytes);
-  if (totalBytes > budget) return { kind: "too-large", totalBytes };
   return { kind: "save" };
 }

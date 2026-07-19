@@ -47,7 +47,7 @@ describe("photo SQL builders", () => {
   it("insertPhotoSql inserts all five columns parameterized", () => {
     const q = insertPhotoSql(photo);
     expect(q.text).toBe(
-      "INSERT INTO photos (id, entry_id, mime, bytes, created_at) VALUES ($1, $2, $3, $4, $5)",
+      "INSERT INTO photos (id, entry_id, mime, bytes, created_at) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (id) DO NOTHING",
     );
     expect(q.values).toEqual(["01PHOTO", "01ENTRY", "image/jpeg", 123_456, "2026-07-16T10:00:00.000Z"]);
   });
