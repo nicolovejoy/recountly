@@ -58,6 +58,13 @@ export interface Recorder {
   resume: () => void;
   /** Finish: return to idle, keep the transcript text. */
   stop: () => void;
+  /**
+   * If a pause/stop flush is currently waiting out its FLUSH_MS window,
+   * run it immediately instead (issue #23 Task 8 lifecycle flush — a
+   * backgrounded/hidden tab can't be trusted to keep running timers). No-op
+   * when nothing is pending.
+   */
+  forceFlush: () => void;
   /** Attach to the mic-level bar span; driven per-frame without re-renders. */
   meterRef: RefObject<HTMLSpanElement | null>;
 }
@@ -100,6 +107,9 @@ export function useRecorder(opts: {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   // Pending pause-flush teardown; cleared if resume/stop happens first.
   const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The deferred body scheduled alongside flushTimerRef (set by pause() or
+  // stop()) — forceFlush runs this immediately instead of waiting FLUSH_MS.
+  const pendingFlushFnRef = useRef<(() => void) | null>(null);
   // Cumulative recording time (see totalElapsedSec): accumulatedMsRef banks
   // finished segments (always 0 until pause/resume lands); segmentStartRef is
   // the running segment's start, or null when not live.
@@ -136,6 +146,7 @@ export function useRecorder(opts: {
   const closeConnection = useCallback(() => {
     if (flushTimerRef.current != null) clearTimeout(flushTimerRef.current);
     flushTimerRef.current = null;
+    pendingFlushFnRef.current = null;
     if (timerRef.current != null) clearInterval(timerRef.current);
     timerRef.current = null;
     if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
@@ -402,10 +413,13 @@ export function useRecorder(opts: {
     streamRef.current?.getTracks().forEach((t) => t.stop());
     // Keep the pc open briefly so the in-flight segment's completed event can
     // still land via the message listener, then fully tear the connection down.
-    flushTimerRef.current = setTimeout(() => {
+    const runPauseFlush = () => {
       flushTimerRef.current = null;
+      pendingFlushFnRef.current = null;
       closeConnection();
-    }, FLUSH_MS);
+    };
+    pendingFlushFnRef.current = runPauseFlush;
+    flushTimerRef.current = setTimeout(runPauseFlush, FLUSH_MS);
   }, [closeConnection, commitBuffer]);
 
   const resume = useCallback(() => {
@@ -457,8 +471,9 @@ export function useRecorder(opts: {
     streamRef.current?.getTracks().forEach((t) => t.stop());
     resetTimer();
     if (flushTimerRef.current != null) clearTimeout(flushTimerRef.current);
-    flushTimerRef.current = setTimeout(() => {
+    const runStopFlush = () => {
       flushTimerRef.current = null;
+      pendingFlushFnRef.current = null;
       closeConnection();
       // The transcript tail has landed by now — hand the complete result over.
       void audioPromise.then((audio) => {
@@ -469,8 +484,36 @@ export function useRecorder(opts: {
           audioComplete: audio?.blob ? !wasPaused : null,
         });
       });
-    }, FLUSH_MS);
+    };
+    pendingFlushFnRef.current = runStopFlush;
+    flushTimerRef.current = setTimeout(runStopFlush, FLUSH_MS);
   }, [commitBuffer, closeConnection, resetTimer, finalizeRecording]);
 
-  return { status, elapsedSec, interim, errorMsg, log, start, pause, resume, stop, meterRef };
+  // Issue #23 Task 8: a pagehide/visibilitychange-hidden event can't trust a
+  // setTimeout to keep running in a backgrounded/discarded tab, so the
+  // lifecycle-flush wiring (RecorderClient) calls this to run whatever
+  // pause/stop flush is currently waiting out FLUSH_MS right now instead.
+  // No-op when nothing is pending (e.g. status is idle, or a flush already ran).
+  const forceFlush = useCallback(() => {
+    if (flushTimerRef.current == null) return;
+    clearTimeout(flushTimerRef.current);
+    flushTimerRef.current = null;
+    const fn = pendingFlushFnRef.current;
+    pendingFlushFnRef.current = null;
+    fn?.();
+  }, []);
+
+  return {
+    status,
+    elapsedSec,
+    interim,
+    errorMsg,
+    log,
+    start,
+    pause,
+    resume,
+    stop,
+    forceFlush,
+    meterRef,
+  };
 }

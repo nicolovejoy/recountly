@@ -8,7 +8,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { upload } from "@vercel/blob/client";
-import { primaryAction, guardBusy, type SaveState } from "@/lib/recorder-state";
+import { primaryAction, guardBusy, isCaptureBusy, type SaveState } from "@/lib/recorder-state";
+import { shouldFlushOnHide } from "@/lib/lifecycle-flush";
 import { uploadEntryBlobs } from "@/lib/blob-upload";
 import { buildSaveBody, withinKeepaliveCap } from "@/lib/save-payload";
 import { ulid } from "@/lib/ulid";
@@ -78,6 +79,26 @@ export default function RecorderClient() {
     });
   }, []);
 
+  // The entry id, shared across the normal Done save AND a lifecycle flush
+  // (issue #23 Task 8 — see the pagehide/visibilitychange effect below): a
+  // flush that fires before Done finishes must reuse the SAME id so its
+  // transcript-only insert and the later full-refs save land on one row
+  // (idempotent upsert — src/lib/entry-sql.ts). Minted lazily by whichever
+  // fires first; cleared only once a save fully succeeds.
+  const entryIdRef = useRef<string | null>(null);
+  const getEntryId = useCallback(() => {
+    if (!entryIdRef.current) entryIdRef.current = ulid();
+    return entryIdRef.current;
+  }, []);
+  // elapsedSec snapshot taken the instant Done is tapped — useRecorder's
+  // stop() zeroes elapsedSec synchronously (well before a lifecycle flush
+  // might fire during the finishing/saving window), so the flush path needs
+  // its own copy of "how long was this take" for that window.
+  const pendingDurationRef = useRef(0);
+  // "Already fired" guard for the lifecycle-flush effect below — pagehide and
+  // visibilitychange(hidden) commonly fire together for one hide episode.
+  const flushFiredRef = useRef(false);
+
   // Done's save trigger (issue #23 client-direct flow): mint the entry id +
   // per-photo ids, upload the blobs STRAIGHT to Vercel Blob (audio best-effort,
   // photos NOT — a photo throw aborts and keeps the tray), then POST a small
@@ -96,7 +117,7 @@ export default function RecorderClient() {
       setSaveState("saving");
       setSaveError(null);
 
-      const id = ulid();
+      const id = getEntryId();
       const photos = pendingPhotos.map((p) => ({ id: ulid(), blob: p.blob, mime: p.mime }));
       const audio = result.audioBlob
         ? {
@@ -144,19 +165,95 @@ export default function RecorderClient() {
         setPendingPhotos([]);
         setWrittenDate("");
         setSaveState("saved");
+        // Fully landed — the next recording (or a retry after a later error)
+        // gets a fresh id / flush guard.
+        entryIdRef.current = null;
+        flushFiredRef.current = false;
       } catch (err) {
         setSaveError(err instanceof Error ? err.message : String(err));
         setSaveState("error");
       }
     },
-    [active?.id, writtenDate, pendingPhotos],
+    [active?.id, writtenDate, pendingPhotos, getEntryId],
   );
 
-  const { status, elapsedSec, interim, errorMsg, log, start, pause, resume, stop, meterRef } =
+  const { status, elapsedSec, interim, errorMsg, log, start, pause, resume, stop, forceFlush, meterRef } =
     useRecorder({
       onSegment: (segment) => editorRef.current?.append(segment),
       onStop,
     });
+
+  // Issue #23 Task 8 — lifecycle flush: while a capture session is in flight
+  // OR a save is between Done and the POST settling, a backgrounded/discarded
+  // tab can't be trusted to keep a setTimeout or an in-flight fetch(audio
+  // upload) alive. Register pagehide/visibilitychange listeners for exactly
+  // that window (shouldFlushOnHide) and, on fire, force out a TRANSCRIPT-ONLY
+  // keepalive JSON save (audio: null, photos: []) — blob uploads can't be
+  // trusted to finish in a hidden tab, and posting refs to blobs that never
+  // landed would create rows pointing at nothing. The audio/photos still land
+  // later via the normal path (accelerated below) or, once built, Task 9's
+  // IndexedDB recovery — this flush's insert is NOT deleted by that later
+  // path, only replaced/attached onto via the Task 1 idempotent upsert.
+  // Mirrors elapsedSec so fire() (below) reads a live value without the
+  // listener-registration effect re-running on every 250ms timer tick.
+  const elapsedSecRef = useRef(elapsedSec);
+  useEffect(() => {
+    elapsedSecRef.current = elapsedSec;
+  }, [elapsedSec]);
+  useEffect(() => {
+    if (!shouldFlushOnHide(status, saveState)) return;
+
+    const fire = () => {
+      // "Already fired" guard: pagehide and visibilitychange(hidden) commonly
+      // fire together for one hide episode — only act once per episode.
+      if (flushFiredRef.current) return;
+      flushFiredRef.current = true;
+
+      const transcript = editorRef.current?.getValue().trim() ?? "";
+      if (planSave(transcript).kind !== "empty") {
+        const durationSeconds = isCaptureBusy(status)
+          ? elapsedSecRef.current
+          : pendingDurationRef.current;
+        const body = buildSaveBody({
+          id: getEntryId(),
+          transcript,
+          durationSeconds,
+          journalId: active?.id,
+          writtenAt: writtenAtIso(writtenDate),
+          audio: null,
+          photos: [],
+        });
+        // Fire-and-forget: this is the emergency path itself, nothing left to
+        // fall back to if it fails, and there's no page left to show an error in.
+        void fetch("/api/entries", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+          keepalive: true,
+        }).catch(() => {});
+      }
+
+      // Accelerate any pending session teardown: a live/paused/connecting
+      // session gets an implicit Done (skips the FLUSH_MS wait via
+      // forceFlush right after); a Done already in flight (status back to
+      // idle, saveState "finishing") just gets its pending flush timer run
+      // now instead of after FLUSH_MS. No-op in "saving" (the flush already
+      // fired earlier) — this call is a bonus, not the save itself.
+      if (isCaptureBusy(status)) stop();
+      forceFlush();
+    };
+
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") fire();
+      else flushFiredRef.current = false; // re-arm for the next hide episode
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("pagehide", fire);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("pagehide", fire);
+    };
+  }, [status, saveState, active?.id, writtenDate, stop, forceFlush, getEntryId]);
 
   // The one circular control's action is derived from status (single tested
   // source of truth — see primaryAction).
@@ -215,6 +312,10 @@ export default function RecorderClient() {
         {inSession && (
           <button
             onClick={() => {
+              // Snapshot before stop() zeroes elapsedSec — the lifecycle
+              // flush (issue #23 Task 8) needs this if it fires during the
+              // finishing/saving window that follows.
+              pendingDurationRef.current = elapsedSec;
               setSaveState("finishing");
               stop();
             }}
