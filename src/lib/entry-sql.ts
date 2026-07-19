@@ -64,12 +64,18 @@ export function listEntriesSql(limit = 50): SqlQuery {
 // Phase 3 search. Free-text over the generated transcript_tsv (title+transcript)
 // plus an optional inclusive recorded_at date range. With no filters it degrades
 // to the same newest-first list as listEntriesSql.
+// Sort orders (issue #29): "newest" is the default effective-date-descending
+// list; "reading" is the journal view's page order — oldest written first.
+export type EntrySort = "newest" | "reading";
+
 export interface SearchFilters {
   query?: string; // free text; matched via websearch_to_tsquery
   journalId?: string; // exact match on entries.journal_id
   from?: string; // YYYY-MM-DD, inclusive lower bound on the effective date
   to?: string; // YYYY-MM-DD, inclusive — covers the whole day
   limit?: number;
+  sort?: EntrySort; // "reading" = coalesce(written_at, recorded_at) ASC, recorded_at ASC
+  unfiled?: boolean; // true = journal_id IS NULL (ignored when journalId is set — journalId wins)
 }
 
 export function searchEntriesSql(f: SearchFilters = {}): SqlQuery {
@@ -93,13 +99,21 @@ export function searchEntriesSql(f: SearchFilters = {}): SqlQuery {
     rankExpr = `ts_rank(transcript_tsv, websearch_to_tsquery('english', ${ph}))`;
   }
   if (f.journalId) where.push(`journal_id = ${next(f.journalId)}`);
+  // Unfiled (issue #29): a bare clause, no placeholder, so it never shifts the
+  // numbered params. journalId wins when both are set.
+  else if (f.unfiled) where.push("journal_id IS NULL");
   if (f.from) where.push(`${EFFECTIVE_AT} >= ${next(f.from)}::date`);
   if (f.to) where.push(`${EFFECTIVE_AT} < (${next(f.to)}::date + 1)`);
 
   const whereSql = ` WHERE ${where.join(" AND ")}`;
-  const orderSql = rankExpr
-    ? ` ORDER BY ${rankExpr} DESC, ${EFFECTIVE_AT} DESC`
-    : ` ORDER BY ${EFFECTIVE_AT} DESC`;
+  // Reading order (issue #29) overrides relevance ranking — the journal view
+  // never sends a query, but the override is specified (and tested) anyway.
+  const orderSql =
+    f.sort === "reading"
+      ? ` ORDER BY ${EFFECTIVE_AT} ASC, recorded_at ASC`
+      : rankExpr
+        ? ` ORDER BY ${rankExpr} DESC, ${EFFECTIVE_AT} DESC`
+        : ` ORDER BY ${EFFECTIVE_AT} DESC`;
   const limitPh = next(f.limit ?? 50);
   return {
     text: `SELECT ${COLUMNS}, ${PHOTO_COUNT_COLUMN} FROM entries${whereSql}${orderSql} LIMIT ${limitPh}`,

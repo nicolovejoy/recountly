@@ -36,6 +36,52 @@ describe("buildSearchQueryString", () => {
   });
 });
 
+describe("sort / limit / unfiled params (issue #29)", () => {
+  it("parses ?sort= accepting only the literal 'reading'", () => {
+    expect(parseSearchFilters(new URLSearchParams("sort=reading"))).toEqual({
+      sort: "reading",
+    });
+    expect(parseSearchFilters(new URLSearchParams("sort=newest"))).toEqual({});
+    expect(parseSearchFilters(new URLSearchParams("sort=bogus"))).toEqual({});
+  });
+
+  it("parses ?limit= as an integer clamped to 1..200, dropping bogus values", () => {
+    expect(parseSearchFilters(new URLSearchParams("limit=200"))).toEqual({ limit: 200 });
+    expect(parseSearchFilters(new URLSearchParams("limit=500"))).toEqual({ limit: 200 });
+    expect(parseSearchFilters(new URLSearchParams("limit=0"))).toEqual({ limit: 1 });
+    expect(parseSearchFilters(new URLSearchParams("limit=-5"))).toEqual({ limit: 1 });
+    expect(parseSearchFilters(new URLSearchParams("limit=abc"))).toEqual({});
+    expect(parseSearchFilters(new URLSearchParams("limit=2.5"))).toEqual({});
+    expect(parseSearchFilters(new URLSearchParams("limit="))).toEqual({});
+  });
+
+  it("parses ?unfiled= accepting only the literal '1', dropped when journal is present (journalId wins)", () => {
+    expect(parseSearchFilters(new URLSearchParams("unfiled=1"))).toEqual({
+      unfiled: true,
+    });
+    expect(parseSearchFilters(new URLSearchParams("unfiled=true"))).toEqual({});
+    expect(parseSearchFilters(new URLSearchParams("unfiled=1&journal=01JRNL"))).toEqual({
+      journalId: "01JRNL",
+    });
+  });
+
+  it("round-trips sort + limit + unfiled through buildSearchQueryString", () => {
+    const journalView = { journalId: "01JRNL", sort: "reading" as const, limit: 200 };
+    expect(
+      parseSearchFilters(new URLSearchParams(buildSearchQueryString(journalView))),
+    ).toEqual(journalView);
+    const unfiledView = { unfiled: true, limit: 200 };
+    expect(
+      parseSearchFilters(new URLSearchParams(buildSearchQueryString(unfiledView))),
+    ).toEqual(unfiledView);
+  });
+
+  it("never emits sort=newest (the default) or an unset limit/unfiled", () => {
+    expect(buildSearchQueryString({ sort: "newest" })).toBe("");
+    expect(buildSearchQueryString({})).toBe("");
+  });
+});
+
 describe("journal filter param", () => {
   it("parses ?journal= into journalId, dropping blanks", () => {
     expect(parseSearchFilters(new URLSearchParams("journal=01JRNL"))).toEqual({

@@ -17,6 +17,19 @@ export function parseSearchFilters(params: URLSearchParams): SearchFilters {
   if (to) out.to = to;
   const journal = params.get("journal")?.trim();
   if (journal) out.journalId = journal;
+  // Only the literal "1" opts in, and journalId wins when both are set —
+  // mirrors searchEntriesSql, which ignores unfiled alongside a journalId.
+  if (params.get("unfiled") === "1" && !out.journalId) out.unfiled = true;
+  // Only the non-default literal is accepted; "newest" is implicit and never
+  // round-trips, anything else is dropped.
+  if (params.get("sort") === "reading") out.sort = "reading";
+  // The journal view asks for 200 so a full notebook isn't truncated at the
+  // default 50. Non-integers are dropped; out-of-range values clamp to 1..200.
+  const limitRaw = params.get("limit")?.trim();
+  if (limitRaw) {
+    const limit = Number(limitRaw);
+    if (Number.isInteger(limit)) out.limit = Math.min(200, Math.max(1, limit));
+  }
   return out;
 }
 
@@ -28,6 +41,9 @@ export function buildSearchQueryString(f: SearchFilters): string {
   if (f.from) params.set("from", f.from);
   if (f.to) params.set("to", f.to);
   if (f.journalId) params.set("journal", f.journalId);
+  if (f.unfiled) params.set("unfiled", "1");
+  if (f.sort === "reading") params.set("sort", "reading");
+  if (f.limit != null) params.set("limit", String(f.limit));
   const s = params.toString();
   return s ? `?${s}` : "";
 }

@@ -25,8 +25,12 @@ import {
   listJournalsSql,
   getJournalSql,
   setActiveJournalSql,
+  journalSummariesSql,
+  unfiledCountSql,
   rowToJournal,
+  rowToJournalSummary,
   type JournalRecord,
+  type JournalSummary,
 } from "./journal";
 import {
   insertPhotoSql,
@@ -196,6 +200,24 @@ export async function setActiveJournal(
   const { text, values } = setActiveJournalSql(id);
   const rows = await runner.query(text, values);
   return id == null ? true : rows.length > 0;
+}
+
+// Library page (issue #29): per-journal aggregates, empty journals included.
+export async function listJournalSummaries(
+  runner: QueryRunner = defaultRunner(),
+): Promise<JournalSummary[]> {
+  const { text, values } = journalSummariesSql();
+  const rows = await runner.query(text, values);
+  return rows.map(rowToJournalSummary);
+}
+
+// Live entries not filed under any journal (the Library's Unfiled card).
+export async function countUnfiledEntries(
+  runner: QueryRunner = defaultRunner(),
+): Promise<number> {
+  const { text, values } = unfiledCountSql();
+  const rows = await runner.query(text, values);
+  return Number(rows[0]?.unfiled ?? 0);
 }
 
 // Photos (physical-journal archive). NOT best-effort — callers let errors throw.
