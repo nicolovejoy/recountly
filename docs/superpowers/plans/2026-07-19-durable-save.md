@@ -209,9 +209,9 @@ pathname and the photo cap for a `photos/…` pathname (call it directly in the 
 400 + detail when handleUpload throws.
 
 **Steps:**
-- [ ] Failing route tests → implement the handler → `pnpm test && pnpm lint && pnpm build`
+- [x] Failing route tests → implement the handler → `pnpm test && pnpm lint && pnpm build`
   green.
-- [ ] Commit: `feat(api): POST /api/blob/upload — auth-gated client-upload token route (#23)`
+- [x] Commit: `feat(api): POST /api/blob/upload — auth-gated client-upload token route (#23)`
 
 ---
 
