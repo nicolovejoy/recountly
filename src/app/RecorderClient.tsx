@@ -33,6 +33,14 @@ export default function RecorderClient() {
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const [saveError, setSaveError] = useState<string | null>(null);
 
+  // "Saved ✓" is a fixed toast (see below) — clear it so it doesn't sit over
+  // the page forever. Errors stay until explicitly dismissed.
+  useEffect(() => {
+    if (saveState !== "saved") return;
+    const t = setTimeout(() => setSaveState("idle"), 4000);
+    return () => clearTimeout(t);
+  }, [saveState]);
+
   const { journals, active, error: journalsError, create, setActive } = useJournals();
   const [writtenDate, setWrittenDate] = useState("");
   // Photos pending for the entry being captured. Downscaled at attach time
@@ -243,13 +251,36 @@ export default function RecorderClient() {
 
       <TranscriptEditor ref={editorRef} interim={interim} />
 
-      {saveState === "finishing" && <p className="text-xs text-foreground/40">Finishing…</p>}
-      {saveState === "saving" && <p className="text-xs text-foreground/40">Saving…</p>}
-      {saveState === "saved" && <p className="text-xs text-green-600">Saved ✓</p>}
-      {saveState === "error" && (
-        <p className="rounded-lg border border-red-500/30 bg-red-500/5 px-4 py-3 text-sm text-red-500">
-          Couldn’t save: {saveError}
-        </p>
+      {/* Save status lives in a fixed toast, not inline — on a phone the area
+          below the transcript is often beneath the fold, which made save
+          feedback (and the save-failure banner) invisible right when it
+          mattered. */}
+      {saveState !== "idle" && (
+        <div className="fixed inset-x-0 top-3 z-50 flex justify-center px-4">
+          {saveState === "error" ? (
+            <div className="flex max-w-md items-start gap-3 rounded-lg border border-red-500/40 bg-background px-4 py-3 text-sm text-red-500 shadow-lg">
+              <span>Couldn’t save: {saveError}</span>
+              <button
+                type="button"
+                onClick={() => setSaveState("idle")}
+                aria-label="Dismiss"
+                className="shrink-0 text-red-500/70 hover:text-red-500"
+              >
+                ✕
+              </button>
+            </div>
+          ) : (
+            <p
+              className={`rounded-full border border-foreground/15 bg-background px-4 py-1.5 text-sm shadow-lg ${
+                saveState === "saved" ? "text-green-600" : "text-foreground/70"
+              }`}
+            >
+              {saveState === "finishing" && "Finishing…"}
+              {saveState === "saving" && "Saving…"}
+              {saveState === "saved" && "Saved ✓"}
+            </p>
+          )}
+        </div>
       )}
 
       <EntryList reloadKey={reloadKey} journals={journals} />
