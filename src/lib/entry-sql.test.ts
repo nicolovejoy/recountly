@@ -67,6 +67,13 @@ describe("insertEntrySql", () => {
     expect(q.text).not.toContain("DROP TABLE");
     expect(q.values).toContain("'; DROP TABLE entries; --");
   });
+
+  it("upserts on id conflict, attaching audio refs iff the row has none (COALESCE)", () => {
+    const q = insertEntrySql(rec);
+    expect(q.text).toContain(
+      "ON CONFLICT (id) DO UPDATE SET audio_url = COALESCE(entries.audio_url, EXCLUDED.audio_url), audio_mime = COALESCE(entries.audio_mime, EXCLUDED.audio_mime), audio_bytes = COALESCE(entries.audio_bytes, EXCLUDED.audio_bytes), audio_complete = COALESCE(entries.audio_complete, EXCLUDED.audio_complete)",
+    );
+  });
 });
 
 describe("listEntriesSql", () => {

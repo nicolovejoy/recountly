@@ -46,9 +46,12 @@ export interface PhotoRecord {
 
 const COLUMNS = "id, entry_id, mime, bytes, created_at";
 
+// Idempotent (issue #23): a pending-save/recovery re-POST re-inserts the photo
+// rows keyed on the client-minted photo id, so DO NOTHING makes the retry a no-op
+// alongside the already-inserted entry row — no duplicate photos.
 export function insertPhotoSql(p: PhotoRecord): SqlQuery {
   return {
-    text: `INSERT INTO photos (${COLUMNS}) VALUES ($1, $2, $3, $4, $5)`,
+    text: `INSERT INTO photos (${COLUMNS}) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (id) DO NOTHING`,
     values: [p.id, p.entryId, p.mime, p.bytes, p.createdAt],
   };
 }

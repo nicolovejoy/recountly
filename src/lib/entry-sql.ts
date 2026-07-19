@@ -25,9 +25,15 @@ const COLUMNS =
 const PHOTO_COUNT_COLUMN =
   "(SELECT count(*)::int FROM photos p WHERE p.entry_id = entries.id) AS photo_count";
 
+// Idempotent (issue #23): re-inserting the same client-minted id is a no-op for
+// every column EXCEPT the audio ref, which attaches iff the existing row has none
+// (COALESCE prefers the stored value). This is the safety net for pending-save
+// retry and lifecycle-flush — a transcript-only flush POST lands the row first,
+// then a later recovery re-POST with the audio ref fills the audio columns
+// without overwriting anything. All non-audio columns keep first-write-wins.
 export function insertEntrySql(rec: EntryRecord): SqlQuery {
   return {
-    text: `INSERT INTO entries (${COLUMNS}) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
+    text: `INSERT INTO entries (${COLUMNS}) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17) ON CONFLICT (id) DO UPDATE SET audio_url = COALESCE(entries.audio_url, EXCLUDED.audio_url), audio_mime = COALESCE(entries.audio_mime, EXCLUDED.audio_mime), audio_bytes = COALESCE(entries.audio_bytes, EXCLUDED.audio_bytes), audio_complete = COALESCE(entries.audio_complete, EXCLUDED.audio_complete)`,
     values: [
       rec.id,
       rec.recordedAt,
