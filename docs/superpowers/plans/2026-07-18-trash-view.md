@@ -84,9 +84,9 @@ above; and the invariant that the purge route never reaches delete logic for a
 non-trashed id.
 
 **Steps:**
-- [ ] Failing route tests → implement handlers (thin: auth, `await params`, call lib,
+- [x] Failing route tests → implement handlers (thin: auth, `await params`, call lib,
   map result to status) → `pnpm test && pnpm lint && pnpm build` green.
-- [ ] Commit: `feat: trash/restore/purge routes + route-level tests (#27)`
+- [x] Commit: `feat: trash/restore/purge routes + route-level tests (#27)`
 
 ---
 
