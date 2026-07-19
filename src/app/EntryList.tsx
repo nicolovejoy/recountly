@@ -6,7 +6,7 @@
 // this just renders them. Refetches when filters change or RecorderClient bumps
 // reloadKey after a save. Tap a transcript to expand it full-length.
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { formatElapsed } from "@/lib/elapsed";
 import { buildSearchQueryString } from "@/lib/search";
 import type { EntryRecord } from "@/lib/entry";
@@ -17,6 +17,59 @@ import SearchBar from "./SearchBar";
 function formatWhen(iso: string): string {
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
+}
+
+// The 3-line clamp on the collapsed transcript only sometimes actually
+// truncates anything, and photos (attached to the entry) are only rendered
+// once expanded — so this measures real clamping via scrollHeight vs
+// clientHeight (correct at any line width, unlike a character-count guess)
+// and renders the Show more/less toggle only when there's something it would
+// reveal: either the transcript is genuinely clamped, or the entry has photos.
+function EntryTranscript({
+  transcript,
+  isOpen,
+  onToggle,
+  photoCount,
+}: {
+  transcript: string;
+  isOpen: boolean;
+  onToggle: () => void;
+  photoCount: number;
+}) {
+  const ref = useRef<HTMLParagraphElement>(null);
+  const [clamped, setClamped] = useState(false);
+
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    setClamped(el.scrollHeight > el.clientHeight + 1);
+  }, [transcript]);
+
+  const expandable = clamped || photoCount > 0;
+
+  const paragraph = (
+    <p
+      ref={ref}
+      className={`whitespace-pre-wrap text-sm leading-relaxed text-foreground/80 ${
+        isOpen ? "" : "line-clamp-3"
+      }`}
+    >
+      {transcript}
+    </p>
+  );
+
+  if (!expandable) {
+    return paragraph;
+  }
+
+  return (
+    <button type="button" onClick={onToggle} aria-expanded={isOpen} className="text-left">
+      {paragraph}
+      <span className="mt-1 inline-block text-xs text-foreground/40">
+        {isOpen ? "Show less" : "Show more"}
+      </span>
+    </button>
+  );
 }
 
 export default function EntryList({
@@ -107,7 +160,11 @@ export default function EntryList({
   }
 
   async function handleDelete(id: string) {
-    if (!window.confirm("Delete this entry permanently? Its audio and photos are deleted too.")) {
+    if (
+      !window.confirm(
+        "Move this entry to trash? It disappears from the list but nothing is destroyed — it can be recovered later.",
+      )
+    ) {
       return;
     }
     setDeletingId(id);
@@ -227,23 +284,12 @@ export default function EntryList({
                   ))}
                 </ul>
               )}
-              <button
-                type="button"
-                onClick={() => toggle(e.id)}
-                aria-expanded={isOpen}
-                className="text-left"
-              >
-                <p
-                  className={`whitespace-pre-wrap text-sm leading-relaxed text-foreground/80 ${
-                    isOpen ? "" : "line-clamp-3"
-                  }`}
-                >
-                  {e.transcript}
-                </p>
-                <span className="mt-1 inline-block text-xs text-foreground/40">
-                  {isOpen ? "Show less" : "Show more"}
-                </span>
-              </button>
+              <EntryTranscript
+                transcript={e.transcript}
+                isOpen={isOpen}
+                onToggle={() => toggle(e.id)}
+                photoCount={e.photoCount ?? 0}
+              />
               {isOpen && (photosByEntry[e.id]?.length ?? 0) > 0 && (
                 <ul className="flex flex-wrap gap-2">
                   {photosByEntry[e.id].map((p) => (

@@ -1,14 +1,14 @@
-// Entry delete (issue #9). DELETE /api/entries/[id] removes the DB rows
-// (photos then the entry — photos.entry_id has no ON DELETE CASCADE,
-// db/schema.sql:73) and then best-effort cleans up the associated blobs
-// (audio + photos). A blob-cleanup failure does NOT fail the request — the DB
-// rows are already gone, so the entry is deleted from the owner's point of
-// view; a stray blob is just disk, not data loss (the mirror of how audio/
-// photo upload failures are handled on the write path).
+// Entry delete (issue #9), now soft-delete/trash semantics (owner request:
+// worried about permanence). DELETE /api/entries/[id] marks the row
+// deleted_at and hides it everywhere (listEntriesSql/searchEntriesSql/
+// listUnenrichedSql all filter deleted_at IS NULL) — nothing is destroyed.
+// Rows and their audio/photo blobs are kept as-is for later recovery; this
+// handler does not touch blobs at all. A future explicit "empty trash" purge
+// step can use the retained hard-delete helpers (deleteEntry/
+// deletePhotosByEntry in @/lib/db, deleteEntrySql/deletePhotosByEntrySql)
+// plus blob cleanup — none of that runs here.
 
-import { getEntry, deleteEntry, deletePhotosByEntry, listPhotosByEntry } from "@/lib/db";
-import { audioBlobPath, deleteBlobPaths } from "@/lib/blob";
-import { photoBlobPath } from "@/lib/photo";
+import { softDeleteEntry } from "@/lib/db";
 import { getServerSession } from "@/lib/auth-server";
 
 export async function DELETE(
@@ -20,23 +20,9 @@ export async function DELETE(
   }
   const { id } = await params;
 
-  let blobPaths: string[] = [];
+  let trashed: boolean;
   try {
-    const entry = await getEntry(id);
-    if (!entry) {
-      return Response.json({ error: "Not found" }, { status: 404 });
-    }
-
-    const photos = await listPhotosByEntry(id);
-    blobPaths = photos.map((p) => photoBlobPath(p.id, p.mime));
-    if (entry.audioMime) {
-      blobPaths.push(audioBlobPath(id, entry.audioMime));
-    }
-
-    // DB deletes first, in dependency order: photos (child) before the entry
-    // (parent) — photos.entry_id has no ON DELETE CASCADE.
-    await deletePhotosByEntry(id);
-    await deleteEntry(id);
+    trashed = await softDeleteEntry(id);
   } catch (err) {
     return Response.json(
       { error: "Delete failed", detail: String(err) },
@@ -44,16 +30,9 @@ export async function DELETE(
     );
   }
 
-  // Blob cleanup is best-effort: the DB rows are already gone, so a blob
-  // failure here must not fail the request — just surface a warning.
-  let blobWarning: string | undefined;
-  try {
-    await deleteBlobPaths(blobPaths);
-  } catch (err) {
-    blobWarning = String(err);
+  if (!trashed) {
+    return Response.json({ error: "Not found" }, { status: 404 });
   }
 
-  return Response.json(
-    blobWarning ? { deleted: id, blobWarning } : { deleted: id },
-  );
+  return Response.json({ trashed: id });
 }

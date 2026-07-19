@@ -5,6 +5,7 @@ import {
   searchEntries,
   getEntry,
   deleteEntry,
+  softDeleteEntry,
   updateEntryEnrichment,
   listUnenriched,
   insertJournal,
@@ -139,6 +140,23 @@ describe("deleteEntry", () => {
   it("returns false when no row matched", async () => {
     const { runner } = fakeRunner([]);
     expect(await deleteEntry("nope", runner)).toBe(false);
+  });
+});
+
+describe("softDeleteEntry", () => {
+  it("returns true when a row was trashed", async () => {
+    const { runner, calls } = fakeRunner([{ id: "01HX" }]);
+    const out = await softDeleteEntry("01HX", runner);
+    expect(calls[0].text).toBe(
+      "UPDATE entries SET deleted_at = now(), updated_at = now() WHERE id = $1 AND deleted_at IS NULL RETURNING id",
+    );
+    expect(calls[0].values).toEqual(["01HX"]);
+    expect(out).toBe(true);
+  });
+
+  it("returns false when no live row matched (unknown id or already trashed)", async () => {
+    const { runner } = fakeRunner([]);
+    expect(await softDeleteEntry("nope", runner)).toBe(false);
   });
 });
 

@@ -63,6 +63,12 @@ export interface EntryRecord {
   // true = audio covers the whole entry; false = partial (paused mid-entry);
   // null = no audio (or unknown, for pre-Phase-4 rows).
   audioComplete: boolean | null;
+  // Number of photos attached to this entry. Only populated by the list/search
+  // queries (listEntriesSql/searchEntriesSql); undefined elsewhere (e.g. a
+  // freshly-built record pre-insert, or a getEntrySql row) — the entry list UI
+  // uses it to decide whether a short transcript still needs the expand
+  // toggle, since photos only render when expanded.
+  photoCount?: number;
 }
 
 // Returns a list of human-readable problems; empty means valid. A list (rather

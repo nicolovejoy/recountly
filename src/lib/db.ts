@@ -10,6 +10,7 @@ import {
   searchEntriesSql,
   getEntrySql,
   deleteEntrySql,
+  softDeleteEntrySql,
   updateEnrichmentSql,
   listUnenrichedSql,
   rowToEntry,
@@ -98,6 +99,18 @@ export async function deleteEntry(
   runner: QueryRunner = defaultRunner(),
 ): Promise<boolean> {
   const { text, values } = deleteEntrySql(id);
+  const rows = await runner.query(text, values);
+  return rows.length > 0;
+}
+
+// Soft-delete (trash): marks the row deleted_at rather than removing it.
+// Returns whether a live row was actually trashed (false = unknown id or
+// already trashed), via RETURNING id rather than a separate existence check.
+export async function softDeleteEntry(
+  id: string,
+  runner: QueryRunner = defaultRunner(),
+): Promise<boolean> {
+  const { text, values } = softDeleteEntrySql(id);
   const rows = await runner.query(text, values);
   return rows.length > 0;
 }
