@@ -17,8 +17,9 @@ export default function TabsLayout({
 }>) {
   return (
     <CaptureGuardProvider>
-      {/* pb-20 keeps the fixed tab bar from covering page content. */}
-      <main className="mx-auto flex min-h-full w-full max-w-2xl flex-1 flex-col gap-6 px-5 py-8 pb-20">
+      {/* pb-28 keeps the fixed tab bar from covering page content, with room
+          for the busy-hint line + safe-area inset. */}
+      <main className="mx-auto flex min-h-full w-full max-w-2xl flex-1 flex-col gap-6 px-5 py-8 pb-28">
         <header className="flex items-center justify-between">
           <h1 className="text-2xl font-semibold tracking-tight">recountly</h1>
           {BUILD_TIME && (

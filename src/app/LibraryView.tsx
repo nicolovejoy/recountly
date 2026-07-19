@@ -5,7 +5,7 @@
 // Nearly all existing entries are unfiled, so that card links to
 // /library/unfiled or Library would be a dead end for them. One fetch of
 // GET /api/journals/summaries feeds the whole page; refetches on mount each
-// visit. The Trash link at the bottom lands with /library/trash (Task 5).
+// visit. Trash link at the bottom → /library/trash.
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
@@ -94,6 +94,13 @@ export default function LibraryView() {
           </li>
         )}
       </ul>
+
+      <Link
+        href="/library/trash"
+        className="self-start text-xs text-foreground/40 hover:text-foreground/70"
+      >
+        Trash
+      </Link>
     </section>
   );
 }

@@ -4,8 +4,8 @@
 // debounces the free-text query, and fetches GET /api/entries?q&from&to. The API
 // returns rows already ordered (relevance when searching, else newest-first), so
 // this just renders them. Refetches when filters change, on mount (each tab
-// visit remounts it), or when the parent bumps reloadKey (e.g. after a trash
-// restore). Per-card state (expand, photos, trashing) lives in EntryCard
+// visit remounts it), or when the parent bumps reloadKey.
+// Per-card state (expand, photos, trashing) lives in EntryCard
 // (extracted for issue #29); a trashed card calls onTrashed and the row is
 // dropped here.
 
@@ -19,11 +19,9 @@ import SearchBar from "./SearchBar";
 export default function EntryList({
   reloadKey = 0,
   journals,
-  onShowTrash,
 }: {
   reloadKey?: number;
   journals: JournalRecord[] | null;
-  onShowTrash: () => void;
 }) {
   const [query, setQuery] = useState("");
   const [from, setFrom] = useState("");
@@ -79,16 +77,7 @@ export default function EntryList({
 
   return (
     <section className="flex flex-col gap-3">
-      <div className="flex items-baseline justify-between gap-3">
-        <h2 className="text-sm font-medium text-foreground/50">Entries</h2>
-        <button
-          type="button"
-          onClick={onShowTrash}
-          className="text-xs text-foreground/40 hover:text-foreground/70"
-        >
-          Trash
-        </button>
-      </div>
+      <h2 className="text-sm font-medium text-foreground/50">Entries</h2>
 
       <SearchBar
         query={query}
