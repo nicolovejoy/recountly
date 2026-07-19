@@ -57,6 +57,7 @@ describe("uploadEntryBlobs", () => {
         bytes: audioBlob.size,
         complete: true,
       },
+      audioError: null,
       photos: [
         {
           id: "01PHOTO",
@@ -75,10 +76,10 @@ describe("uploadEntryBlobs", () => {
       fn,
     );
     expect(calls).toEqual([]);
-    expect(result).toEqual({ audio: null, photos: [] });
+    expect(result).toEqual({ audio: null, audioError: null, photos: [] });
   });
 
-  it("swallows an audio-upload failure (best-effort): audio null, photos still uploaded", async () => {
+  it("swallows an audio-upload failure (best-effort): audio null + audioError set, photos still uploaded", async () => {
     const photoBlob = new Blob([new Uint8Array(8)], { type: "image/png" });
     const calls: string[] = [];
     const fn: ClientUploadFn = async (pathname) => {
@@ -98,6 +99,7 @@ describe("uploadEntryBlobs", () => {
 
     expect(calls).toContain("audio/01ENTRY.webm");
     expect(result.audio).toBeNull();
+    expect(result.audioError).toBe("Error: audio blob rejected");
     expect(result.photos).toEqual([
       { id: "01PHOTO", pathname: "photos/01PHOTO.png", mime: "image/png", bytes: photoBlob.size },
     ]);

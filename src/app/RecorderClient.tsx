@@ -192,7 +192,15 @@ export default function RecorderClient() {
         pendingPhotos.forEach((p) => URL.revokeObjectURL(p.previewUrl));
         setPendingPhotos([]);
         setWrittenDate("");
-        setSaveState("saved");
+        if (uploaded.audioError) {
+          // The entry landed (transcript safe) but its audio didn't. Surface
+          // the real error text — on the phone this toast is the only console.
+          console.error("audio upload failed:", uploaded.audioError);
+          setSaveError(`Saved, but the audio failed to upload: ${uploaded.audioError}`);
+          setSaveState("error");
+        } else {
+          setSaveState("saved");
+        }
         // Fully landed — the next recording (or a retry after a later error)
         // gets a fresh id / flush guard.
         entryIdRef.current = null;

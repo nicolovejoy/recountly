@@ -28,6 +28,7 @@ export interface EntryUploadInput {
 
 export interface EntryUploadResult {
   audio: SaveAudioRef | null; // null when no audio OR the best-effort upload failed
+  audioError: string | null; // why audio is null despite audio existing — surfaced in the UI, never silent
   photos: SavePhotoRef[]; // fully populated; the fn throws before returning if any photo fails
 }
 
@@ -42,7 +43,7 @@ export async function uploadEntryBlobs(
   input: EntryUploadInput,
   upload: ClientUploadFn,
 ): Promise<EntryUploadResult> {
-  const audio = await uploadAudioRef(input.entryId, input.audio, upload);
+  const { ref: audio, error: audioError } = await uploadAudioRef(input.entryId, input.audio, upload);
 
   const photos: SavePhotoRef[] = [];
   for (const photo of input.photos) {
@@ -57,15 +58,15 @@ export async function uploadEntryBlobs(
     photos.push({ id: photo.id, pathname, mime: photo.mime, bytes: photo.blob.size });
   }
 
-  return { audio, photos };
+  return { audio, audioError, photos };
 }
 
 async function uploadAudioRef(
   entryId: string,
   audio: EntryUploadInput["audio"],
   upload: ClientUploadFn,
-): Promise<SaveAudioRef | null> {
-  if (!audio) return null;
+): Promise<{ ref: SaveAudioRef | null; error: string | null }> {
+  if (!audio) return { ref: null, error: null };
   const pathname = audioBlobPath(entryId, audio.mime);
   try {
     // multipart: audio can be long (100 MB cap in the token route).
@@ -75,10 +76,13 @@ async function uploadAudioRef(
       contentType: audio.mime,
       multipart: true,
     });
-    return { pathname, mime: audio.mime, bytes: audio.blob.size, complete: audio.complete };
-  } catch {
-    // Best-effort (matches uploadAudio's current semantics): drop the audio,
-    // the transcript still saves.
-    return null;
+    return {
+      ref: { pathname, mime: audio.mime, bytes: audio.blob.size, complete: audio.complete },
+      error: null,
+    };
+  } catch (err) {
+    // Best-effort: drop the audio, the transcript still saves — but report WHY
+    // so the UI can say so (silent loss hid a total prod upload outage, #45).
+    return { ref: null, error: err instanceof Error ? `${err.name}: ${err.message}` : String(err) };
   }
 }
