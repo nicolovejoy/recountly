@@ -18,6 +18,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { pauseOthers } from "@/lib/audio-exclusive";
 import { useRouter, useSearchParams } from "next/navigation";
 import { formatElapsed } from "@/lib/elapsed";
 import type { EntryRecord } from "@/lib/entry";
@@ -226,7 +227,15 @@ export default function EntryDetail({ id }: { id: string }) {
           </p>
 
           {entry.audioUrl && (
-            <audio controls preload="metadata" src={entry.audioUrl} className="w-full">
+            <audio
+              controls
+              preload="metadata"
+              src={entry.audioUrl}
+              className="w-full"
+              onPlay={(e) =>
+                pauseOthers(document.querySelectorAll("audio"), e.currentTarget)
+              }
+            >
               <track kind="captions" />
             </audio>
           )}

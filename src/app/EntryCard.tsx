@@ -22,6 +22,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { pauseOthers } from "@/lib/audio-exclusive";
 import { formatElapsed } from "@/lib/elapsed";
 import type { EntryRecord } from "@/lib/entry";
 import type { PhotoRecord } from "@/lib/photo";
@@ -267,7 +268,15 @@ export default function EntryCard({
         <p className="text-sm text-red-500">Couldn’t trash entry: {trashError}</p>
       )}
       {e.audioUrl && (
-        <audio controls preload="metadata" src={e.audioUrl} className="mt-1 w-full">
+        <audio
+          controls
+          preload="metadata"
+          src={e.audioUrl}
+          className="mt-1 w-full"
+          onPlay={(ev) =>
+            pauseOthers(document.querySelectorAll("audio"), ev.currentTarget)
+          }
+        >
           <track kind="captions" />
         </audio>
       )}
