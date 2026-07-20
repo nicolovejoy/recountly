@@ -17,6 +17,16 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "recountly",
   description: "A private spoken-word journal. Speak, and watch the words appear.",
+  // "Add to Home Screen" on iOS Safari (no manifest support there — this is
+  // the iOS-specific path; manifest.ts covers Android/Chrome).
+  appleWebApp: {
+    capable: true,
+    title: "recountly",
+    statusBarStyle: "black-translucent",
+  },
+  icons: {
+    apple: "/apple-touch-icon.png",
+  },
 };
 
 export const viewport: Viewport = {
@@ -24,6 +34,9 @@ export const viewport: Viewport = {
     { media: "(prefers-color-scheme: light)", color: "#ffffff" },
     { media: "(prefers-color-scheme: dark)", color: "#0a0a0a" },
   ],
+  // black-translucent status bar draws under the notch; viewportFit: cover
+  // extends content full-bleed so env(safe-area-inset-*) has room to work.
+  viewportFit: "cover",
 };
 
 export default function RootLayout({

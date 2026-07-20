@@ -465,7 +465,7 @@ export default function RecorderClient() {
           feedback (and the save-failure banner) invisible right when it
           mattered. */}
       {saveState !== "idle" && (
-        <div className="fixed inset-x-0 top-3 z-50 flex justify-center px-4">
+        <div className="fixed inset-x-0 top-[calc(0.75rem+env(safe-area-inset-top))] z-50 flex justify-center px-4">
           {saveState === "error" ? (
             <div className="flex max-w-md items-start gap-3 rounded-lg border border-red-500/40 bg-background px-4 py-3 text-sm text-red-500 shadow-lg">
               <span>Couldn’t save: {saveError}</span>

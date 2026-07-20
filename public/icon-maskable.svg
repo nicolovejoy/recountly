@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Maskable/Apple-touch variant: full-bleed square (no baked-in corner
+       radius — the OS applies its own mask/rounding), dot shrunk to sit
+       inside the ~80% maskable safe-zone circle (radius 205 at this size). -->
+  <rect width="512" height="512" fill="#0a0a0a" />
+  <circle cx="256" cy="256" r="130" fill="#dc2626" opacity="0.16" />
+  <circle cx="256" cy="256" r="76" fill="#dc2626" />
+</svg>
