@@ -12,8 +12,11 @@ export const TABS: ReadonlyArray<{ tab: Tab; href: string; label: string }> = [
 
 // Segment-aware prefix match: /library and everything under it (trash, a
 // journal id) highlight Library; anything unrecognized falls back to Capture.
+// /entry/[id] (issue #39) is the detail page reached from Library — it also
+// lights Library, the browsing home.
 export function activeTab(pathname: string): Tab {
   if (pathname === "/library" || pathname.startsWith("/library/")) return "library";
+  if (pathname === "/entry" || pathname.startsWith("/entry/")) return "library";
   if (pathname === "/search" || pathname.startsWith("/search/")) return "search";
   return "capture";
 }
