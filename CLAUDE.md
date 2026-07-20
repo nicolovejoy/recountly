@@ -238,20 +238,30 @@ select mode in Unfiled. ⚠️ purge must delete `entry_moves` rows before the e
 same idiom as photos; review caught the FK 500). Browser smoke on prod: 7/7 pass (Playwright
 subagent; profile already held a session so no credentials were handled; all moves reversed).
 
+⚠️ **#45 (OPEN, blocking audio): prod is missing `BLOB_READ_WRITE_TOKEN`.** The current Blob
+store connection emits `BLOB_STORE_ID`/`BLOB_WEBHOOK_PUBLIC_KEY` only; server-side `put`/`get`
+auth via the store binding (playback + pre-#23 uploads worked), but `handleUpload` signs client
+tokens with the literal RW token — so EVERY client-direct upload since #37 merged failed, and
+best-effort audio made it silent ("Saved ✓", no audio; those recordings are unrecoverable;
+transcripts intact). Verified by probing `POST /api/blob/upload` on prod (400 "No read-write
+token found"). Fix = owner pastes the token (1Password item `recountly-blob`) into Vercel →
+Production+Preview env, then redeploy. PR #46 (open) makes audio-upload failure loud in the
+save toast. PR #47 (open) is #40 bulk select (select-all, bulk trash/move in journal+Unfiled,
+"Reading order"→"Oldest first" relabel; search-view select still open on #40).
+
 **Next Steps**:
-- **Owner phone-smokes Phase B** per `docs/smoke-checklist.md` (build stamp first): Done→lock,
-  background mid-recording, airplane recovery. Then close **#23** (and **#30** — design + all
-  children shipped; owner to confirm).
-- **#38/#39** capture-session UX + entry detail page (post-save nav, whole-card tap,
-  continuous capture; note Phase B's backgrounding-= -implicit-Done) — short design pass first.
-- **#35** mother-site style pass + desktop top-nav (style vocabulary in the issue).
-- **Node 22 + pnpm 10 chore PR (owner approved)** — before passkeys; owner installs Node
-  locally; verify the Vercel project's Node runtime.
-- Then: capture polish (`page_label` + sticky) → **#36** search increments (URL-as-state
-  first) → **#33** covers (+ ~300px thumb variant) → **#40** remainder (bulk trash, select in
-  journal/search views). Parked: sequential photo uploads + photoless-entry 500 (Phase A
-  review nits), EXIF portrait on iPhone, optimistic journal-switch, photo-fetch retry,
-  orphan-blob purge sweep.
+- **Finish #45**: owner adds `BLOB_READ_WRITE_TOKEN` to Vercel prod env → merge PRs #46 + #47
+  (merge = redeploy) → retest on iPhone: normal save has audio, photo save works, then the 3
+  Phase B phone checks (Done→lock, background mid-recording, airplane recovery) per
+  `docs/smoke-checklist.md`. Then close #45, #23, likely #40.
+- **PWA** (owner asked): manifest + Apple touch icons + `display: standalone` — small, next up.
+- **#38/#39** capture-session UX + entry detail page (post-save nav, whole-card tap, continuous
+  capture; note Phase B's backgrounding-=-implicit-Done) — short design pass first.
+- **#35** mother-site style pass + desktop top-nav; **Node 22 + pnpm 10 chore** (before
+  passkeys; verify Vercel runtime too).
+- Then: capture polish (`page_label` + sticky) → **#36** search increments → **#33** covers
+  (+ thumb variant). Parked: sequential photo uploads + photoless-entry 500, EXIF portrait,
+  optimistic journal-switch, photo-fetch retry, orphan-blob purge sweep.
 - **Passkeys (WebAuthn) primary + email/password as break-glass fallback** (NOT SMS — rejected as
   weakest 2FA; NOT Sign in with Apple — needs $99 dev program). Better Auth `passkey()` plugin:
   add to `src/lib/auth.ts` (`rpID: "recountly.org"` + localhost), `passkeyClient()` in
