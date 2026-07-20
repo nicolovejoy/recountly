@@ -2,15 +2,26 @@
 
 // One saved-entry card, extracted from EntryList (issue #29) so the Library
 // journal/unfiled views can reuse it: title/date/duration, journal chip,
-// written date, summary, tags, clamp-aware expand with lazy photo fetch,
-// audio + partial-audio cue, Trash with confirm, Move… (issue #28). Per-card
-// state (expanded, photos, trashing, moving) lives here; the parent only
-// learns about a successful trash/move via onTrashed/onMoved and decides
-// whether the row stays (e.g. a view filtered to one journal drops a row that
-// moved elsewhere). journalLabel null hides the chip (redundant inside a
-// journal's own view).
+// written date, summary, tags, clamped transcript preview, collapsed photo
+// thumbnails, audio + partial-audio cue, Trash with confirm, Move…
+// (issue #28). Per-card state (photos, trashing, moving) lives here; the
+// parent only learns about a successful trash/move via onTrashed/onMoved and
+// decides whether the row stays (e.g. a view filtered to one journal drops a
+// row that moved elsewhere). journalLabel null hides the chip (redundant
+// inside a journal's own view).
+//
+// Issue #39: the whole non-interactive body (title, date, journal chip,
+// summary, tags, transcript preview, photo thumbnails) is now a tap target to
+// /entry/[id] — the old in-card "Show more/less" expand + audio + full photos
+// moved to that detail page; this card only ever shows a clamped 3-line
+// preview. The action row (Move…/Trash/the move <select>) and the audio
+// player stay OUTSIDE the tap target so they don't fight it for clicks. In
+// select mode (issue #40 — the checkbox is rendered by the parent, sibling to
+// this card) the tap target is inert instead of a Link: selection already has
+// its own control, and navigating away mid-select would be surprising.
 
-import { useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
+import Link from "next/link";
 import { formatElapsed } from "@/lib/elapsed";
 import type { EntryRecord } from "@/lib/entry";
 import type { PhotoRecord } from "@/lib/photo";
@@ -24,56 +35,70 @@ function formatWhen(iso: string): string {
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
 }
 
-// The 3-line clamp on the collapsed transcript only sometimes actually
-// truncates anything, and photos (attached to the entry) are only rendered
-// once expanded — so this measures real clamping via scrollHeight vs
-// clientHeight (correct at any line width, unlike a character-count guess)
-// and renders the Show more/less toggle only when there's something it would
-// reveal: either the transcript is genuinely clamped, or the entry has photos.
-function EntryTranscript({
-  transcript,
-  isOpen,
-  onToggle,
-  photoCount,
+// The card body: title/date/journal chip/summary/tags/clamped transcript +
+// up to 3 photo thumbnails. Extracted so the two tap-target wrappers below
+// (Link vs. inert div) don't duplicate the markup.
+function EntryCardBody({
+  e,
+  journalLabel,
+  thumbs,
 }: {
-  transcript: string;
-  isOpen: boolean;
-  onToggle: () => void;
-  photoCount: number;
+  e: EntryRecord;
+  journalLabel: string | null;
+  thumbs: PhotoRecord[];
 }) {
-  const ref = useRef<HTMLParagraphElement>(null);
-  const [clamped, setClamped] = useState(false);
-
-  useLayoutEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    setClamped(el.scrollHeight > el.clientHeight + 1);
-  }, [transcript]);
-
-  const expandable = clamped || photoCount > 0;
-
-  const paragraph = (
-    <p
-      ref={ref}
-      className={`whitespace-pre-wrap text-sm leading-relaxed text-foreground/80 ${
-        isOpen ? "" : "line-clamp-3"
-      }`}
-    >
-      {transcript}
-    </p>
-  );
-
-  if (!expandable) {
-    return paragraph;
-  }
-
   return (
-    <button type="button" onClick={onToggle} aria-expanded={isOpen} className="text-left">
-      {paragraph}
-      <span className="mt-1 inline-block text-xs text-foreground/40">
-        {isOpen ? "Show less" : "Show more"}
+    <div className="flex flex-col gap-2">
+      <span className="text-sm font-medium text-foreground/90">
+        {e.title ?? formatWhen(e.recordedAt)}
       </span>
-    </button>
+      {e.title && (
+        <span className="text-xs text-foreground/40">{formatWhen(e.recordedAt)}</span>
+      )}
+      {(journalLabel || e.writtenAt) && (
+        <div className="flex flex-wrap items-center gap-2 text-xs text-foreground/40">
+          {journalLabel && (
+            <span className="rounded-full border border-foreground/10 px-2 py-0.5">
+              📓 {journalLabel}
+            </span>
+          )}
+          {e.writtenAt && (
+            <span>written {new Date(e.writtenAt).toLocaleDateString()}</span>
+          )}
+        </div>
+      )}
+      {e.summary && <p className="text-sm italic text-foreground/60">{e.summary}</p>}
+      {e.tags.length > 0 && (
+        <ul className="flex flex-wrap gap-1.5">
+          {e.tags.map((tag) => (
+            <li
+              key={tag}
+              className="rounded-full bg-foreground/5 px-2 py-0.5 text-xs text-foreground/60"
+            >
+              {tag}
+            </li>
+          ))}
+        </ul>
+      )}
+      <p className="line-clamp-3 whitespace-pre-wrap text-sm leading-relaxed text-foreground/80">
+        {e.transcript}
+      </p>
+      {thumbs.length > 0 && (
+        <ul className="flex flex-wrap gap-1.5">
+          {thumbs.map((p) => (
+            <li key={p.id}>
+              {/* eslint-disable-next-line @next/next/no-img-element -- auth-gated same-origin proxy; next/image's optimizer can't fetch it. CSS-sized, not a real thumbnail — #33 tracks a stored ~300px variant. */}
+              <img
+                src={`/api/photo/${p.id}`}
+                alt="Journal page"
+                loading="lazy"
+                className="h-16 w-16 rounded-md border border-foreground/10 object-cover"
+              />
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 
@@ -83,39 +108,47 @@ export default function EntryCard({
   journals,
   onTrashed,
   onMoved,
+  selectMode = false,
 }: {
   entry: EntryRecord;
   journalLabel: string | null; // null hides the journal chip
   journals: { id: string; label: string }[] | null; // options for the Move picker
   onTrashed: (id: string) => void;
   onMoved: (id: string, journalId: string | null) => void;
+  // Issue #40's select mode: the checkbox lives in the parent (sibling to
+  // this card); while true, the card body doesn't navigate.
+  selectMode?: boolean;
 }) {
-  const [isOpen, setIsOpen] = useState(false);
-  // Photos are fetched lazily on first expand and cached; null = not yet
-  // requested (set to [] immediately so a double-tap doesn't double-fetch).
-  const [photos, setPhotos] = useState<PhotoRecord[] | null>(null);
+  // Collapsed-card thumbnails, up to 3, fetched once on mount ONLY when the
+  // entry has photos (photoCount comes from the list/search queries). One
+  // fetch per card-with-photos on render — fine at ~200 entries/list with
+  // photos still rare; #33's stored thumbnail variant is the proper fix if
+  // this ever gets heavy.
+  const [thumbs, setThumbs] = useState<PhotoRecord[]>([]);
+  useEffect(() => {
+    if ((e.photoCount ?? 0) === 0) return;
+    let alive = true;
+    fetch(`/api/entries/${e.id}/photos`)
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`photos route ${res.status}`);
+        return (await res.json()) as { photos: PhotoRecord[] };
+      })
+      .then((data) => {
+        if (alive) setThumbs(data.photos.slice(0, 3));
+      })
+      .catch(() => {
+        // Card still reads fine without thumbnails.
+      });
+    return () => {
+      alive = false;
+    };
+  }, [e.id, e.photoCount]);
+
   const [trashing, setTrashing] = useState(false);
   const [trashError, setTrashError] = useState<string | null>(null);
   const [movePickerOpen, setMovePickerOpen] = useState(false);
   const [moving, setMoving] = useState(false);
   const [moveError, setMoveError] = useState<string | null>(null);
-
-  function toggle() {
-    setIsOpen((open) => !open);
-    if (photos === null) {
-      // Mark as requested immediately so a double-tap doesn't double-fetch.
-      setPhotos([]);
-      fetch(`/api/entries/${e.id}/photos`)
-        .then(async (res) => {
-          if (!res.ok) throw new Error(`photos route ${res.status}`);
-          return (await res.json()) as { photos: PhotoRecord[] };
-        })
-        .then((data) => setPhotos(data.photos))
-        .catch(() => {
-          // Leave the cached empty list; the transcript is still readable.
-        });
-    }
-  }
 
   async function handleDelete() {
     if (
@@ -159,14 +192,19 @@ export default function EntryCard({
 
   return (
     <li className="flex flex-col gap-2 rounded-xl border border-foreground/10 p-4">
-      <div className="flex items-baseline justify-between gap-3">
-        <span className="text-sm font-medium text-foreground/90">
-          {e.title ?? formatWhen(e.recordedAt)}
+      {selectMode ? (
+        <EntryCardBody e={e} journalLabel={journalLabel} thumbs={thumbs} />
+      ) : (
+        <Link href={`/entry/${e.id}`} className="block">
+          <EntryCardBody e={e} journalLabel={journalLabel} thumbs={thumbs} />
+        </Link>
+      )}
+
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-xs tabular-nums text-foreground/50">
+          {formatElapsed(e.durationSeconds)}
         </span>
         <span className="flex shrink-0 items-baseline gap-2">
-          <span className="text-xs tabular-nums text-foreground/50">
-            {formatElapsed(e.durationSeconds)}
-          </span>
           {journals !== null && (
             <button
               type="button"
@@ -227,55 +265,6 @@ export default function EntryCard({
       {moveError && <p className="text-sm text-red-500">Couldn’t move entry: {moveError}</p>}
       {trashError && (
         <p className="text-sm text-red-500">Couldn’t trash entry: {trashError}</p>
-      )}
-      {e.title && (
-        <span className="text-xs text-foreground/40">{formatWhen(e.recordedAt)}</span>
-      )}
-      {(journalLabel || e.writtenAt) && (
-        <div className="flex flex-wrap items-center gap-2 text-xs text-foreground/40">
-          {journalLabel && (
-            <span className="rounded-full border border-foreground/10 px-2 py-0.5">
-              📓 {journalLabel}
-            </span>
-          )}
-          {e.writtenAt && (
-            <span>written {new Date(e.writtenAt).toLocaleDateString()}</span>
-          )}
-        </div>
-      )}
-      {e.summary && <p className="text-sm italic text-foreground/60">{e.summary}</p>}
-      {e.tags.length > 0 && (
-        <ul className="flex flex-wrap gap-1.5">
-          {e.tags.map((tag) => (
-            <li
-              key={tag}
-              className="rounded-full bg-foreground/5 px-2 py-0.5 text-xs text-foreground/60"
-            >
-              {tag}
-            </li>
-          ))}
-        </ul>
-      )}
-      <EntryTranscript
-        transcript={e.transcript}
-        isOpen={isOpen}
-        onToggle={toggle}
-        photoCount={e.photoCount ?? 0}
-      />
-      {isOpen && (photos?.length ?? 0) > 0 && (
-        <ul className="flex flex-wrap gap-2">
-          {photos?.map((p) => (
-            <li key={p.id}>
-              {/* eslint-disable-next-line @next/next/no-img-element -- auth-gated same-origin proxy; next/image's optimizer can't fetch it */}
-              <img
-                src={`/api/photo/${p.id}`}
-                alt="Journal page"
-                loading="lazy"
-                className="max-h-96 rounded-lg border border-foreground/10"
-              />
-            </li>
-          ))}
-        </ul>
       )}
       {e.audioUrl && (
         <audio controls preload="metadata" src={e.audioUrl} className="mt-1 w-full">
