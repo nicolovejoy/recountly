@@ -22,4 +22,30 @@ describe("pickAudioMimeType", () => {
       "audio/ogg",
     );
   });
+
+  it("picks webm when it's both recordable and playable (desktop Chrome)", () => {
+    expect(pickAudioMimeType(() => true, undefined, () => "probably")).toBe(
+      AUDIO_MIME_CANDIDATES[0],
+    );
+  });
+
+  it("falls through to mp4 when webm is recordable but not playable (iOS PWA bug)", () => {
+    // Mirrors the real iOS home-screen PWA bug: isTypeSupported lies and says
+    // webm is recordable, but canPlayType reports it can't actually be played.
+    const canRecord = new Set(["audio/webm;codecs=opus", "audio/webm", "audio/mp4"]);
+    const playable: Record<string, string> = { "audio/mp4": "maybe" };
+    expect(
+      pickAudioMimeType((t) => canRecord.has(t), undefined, (t) => playable[t] ?? ""),
+    ).toBe("audio/mp4");
+  });
+
+  it("returns empty string when nothing is both recordable and playable", () => {
+    expect(pickAudioMimeType(() => true, undefined, () => "")).toBe("");
+  });
+
+  it("treats a 'maybe' canPlayType result as playable, same as 'probably'", () => {
+    expect(pickAudioMimeType(() => true, undefined, () => "maybe")).toBe(
+      AUDIO_MIME_CANDIDATES[0],
+    );
+  });
 });
