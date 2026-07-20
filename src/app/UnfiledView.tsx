@@ -4,33 +4,28 @@
 // spoken entries, not a paper journal, so no sort=reading. limit=200 matches
 // the journal view so the list isn't truncated at the default 50.
 //
-// Bulk-file (issue #28, owner request: refile the 26 old imports out of
-// Unfiled without tapping Move… 26 times): a "Select" mode adds a checkbox
-// per row, a target-journal picker, and "Move N entries", which PATCHes each
-// selected id sequentially (no new bulk endpoint — small N) then reloads.
+// Select mode (issue #28 bulk-file, extended to bulk trash + select-all for
+// issue #40): a "Select" toggle adds a checkbox per row; SelectionBar then
+// PATCHes (move) or DELETEs (trash) each selected id sequentially via
+// useBulkSelection (no new bulk endpoint — small N) and reloads. Bulk trash
+// asks ONE confirm for the whole batch, not one per entry.
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import type { EntryRecord } from "@/lib/entry";
 import { buildSearchQueryString } from "@/lib/search";
-import { toggleSelected } from "@/lib/selection";
 import EntryCard from "./EntryCard";
+import SelectionBar, { UNFILED_VALUE } from "./SelectionBar";
+import SelectModeToggle from "./SelectModeToggle";
+import { useBulkSelection } from "./useBulkSelection";
 import { useJournals } from "./useJournals";
-
-// Distinct from EntryCard's own picker sentinel — same idea, separate constant
-// since this one drives a local <select>, not EntryCard's internals.
-const UNFILED_VALUE = "__unfiled__";
 
 export default function UnfiledView() {
   const [entries, setEntries] = useState<EntryRecord[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const { journals } = useJournals();
 
-  const [selectMode, setSelectMode] = useState(false);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [bulkTarget, setBulkTarget] = useState("");
-  const [bulkMoving, setBulkMoving] = useState(false);
-  const [bulkError, setBulkError] = useState<string | null>(null);
+  const bulk = useBulkSelection();
 
   const reload = useCallback(() => {
     const queryString = buildSearchQueryString({ unfiled: true, limit: 200 });
@@ -52,44 +47,40 @@ export default function UnfiledView() {
     reload();
   }, [reload]);
 
-  function exitSelectMode() {
-    setSelectMode(false);
-    setSelected(new Set());
-    setBulkTarget("");
-    setBulkError(null);
-  }
-
   async function handleBulkMove() {
-    if (!bulkTarget || selected.size === 0) return;
-    const journalId = bulkTarget === UNFILED_VALUE ? null : bulkTarget;
-    setBulkMoving(true);
-    setBulkError(null);
-    const failed: string[] = [];
-    // Sequential on purpose — 26 entries max today, no new bulk endpoint.
-    for (const id of selected) {
+    if (!bulk.bulkTarget || bulk.selected.size === 0) return;
+    const journalId = bulk.bulkTarget === UNFILED_VALUE ? null : bulk.bulkTarget;
+    await bulk.runBatch("move", async (id) => {
       try {
         const res = await fetch(`/api/entries/${id}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ journalId }),
         });
-        if (!res.ok) failed.push(id);
+        return res.ok;
       } catch {
-        failed.push(id);
+        return false;
       }
-    }
-    setBulkMoving(false);
-    if (failed.length > 0) {
-      // Keep only the failures selected — the moved ones are about to drop
-      // out of this Unfiled list on reload, and a retry must not re-PATCH
-      // entries that already succeeded.
-      setBulkError(`${failed.length} of ${selected.size} entries failed to move.`);
-      setSelected(new Set(failed));
-    } else {
-      exitSelectMode();
-    }
+    });
     reload();
   }
+
+  async function handleBulkTrash() {
+    if (bulk.selected.size === 0) return;
+    const n = bulk.selected.size;
+    if (!window.confirm(`Trash ${n} ${n === 1 ? "entry" : "entries"}?`)) return;
+    await bulk.runBatch("trash", async (id) => {
+      try {
+        const res = await fetch(`/api/entries/${id}`, { method: "DELETE" });
+        return res.ok;
+      } catch {
+        return false;
+      }
+    });
+    reload();
+  }
+
+  const allSelected = (entries?.length ?? 0) > 0 && bulk.selected.size === entries?.length;
 
   return (
     <section className="flex flex-col gap-3">
@@ -107,45 +98,30 @@ export default function UnfiledView() {
           )}
         </div>
         {entries && entries.length > 0 && (
-          <button
-            type="button"
-            onClick={() => (selectMode ? exitSelectMode() : setSelectMode(true))}
-            className="shrink-0 text-xs text-foreground/40 hover:text-foreground/70"
-          >
-            {selectMode ? "Cancel" : "Select"}
-          </button>
+          <SelectModeToggle
+            selectMode={bulk.selectMode}
+            allSelected={allSelected}
+            busy={bulk.busy}
+            onEnter={bulk.enterSelectMode}
+            onExit={bulk.exitSelectMode}
+            onSelectAll={() => bulk.selectAllIds(entries.map((e) => e.id))}
+            onClear={bulk.clearSelection}
+          />
         )}
       </div>
 
-      {selectMode && (
-        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-foreground/10 p-2 text-xs text-foreground/60">
-          <span>
-            {selected.size} selected
-          </span>
-          <select
-            value={bulkTarget}
-            onChange={(ev) => setBulkTarget(ev.target.value)}
-            disabled={bulkMoving}
-            aria-label="Move selected entries to journal"
-            className="rounded-lg border border-foreground/15 bg-transparent px-2 py-1 text-xs outline-none focus:border-foreground/40"
-          >
-            <option value="">Choose journal…</option>
-            {journals?.map((j) => (
-              <option key={j.id} value={j.id}>
-                {j.label}
-              </option>
-            ))}
-          </select>
-          <button
-            type="button"
-            onClick={handleBulkMove}
-            disabled={bulkMoving || !bulkTarget || selected.size === 0}
-            className="rounded-lg border border-foreground/15 px-2 py-1 text-foreground/70 hover:border-foreground/40 disabled:opacity-40"
-          >
-            {bulkMoving ? "Moving…" : `Move ${selected.size} ${selected.size === 1 ? "entry" : "entries"}`}
-          </button>
-          {bulkError && <span className="text-red-500">{bulkError}</span>}
-        </div>
+      {bulk.selectMode && (
+        <SelectionBar
+          count={bulk.selected.size}
+          journals={journals}
+          includeUnfiledOption={false}
+          bulkTarget={bulk.bulkTarget}
+          onBulkTargetChange={bulk.setBulkTarget}
+          busy={bulk.busy}
+          onMove={handleBulkMove}
+          onTrash={handleBulkTrash}
+          error={bulk.error}
+        />
       )}
 
       {error && <p className="text-sm text-red-500">Couldn’t load entries: {error}</p>}
@@ -157,12 +133,12 @@ export default function UnfiledView() {
       <div className="flex flex-col gap-3">
         {entries?.map((e) => (
           <div key={e.id} className="flex items-start gap-2">
-            {selectMode && (
+            {bulk.selectMode && (
               <input
                 type="checkbox"
-                checked={selected.has(e.id)}
-                onChange={() => setSelected((prev) => toggleSelected(prev, e.id))}
-                disabled={bulkMoving}
+                checked={bulk.selected.has(e.id)}
+                onChange={() => bulk.toggle(e.id)}
+                disabled={bulk.busy}
                 aria-label={`Select ${e.title ?? "entry"}`}
                 className="mt-4 shrink-0"
               />
