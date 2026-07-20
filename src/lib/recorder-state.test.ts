@@ -22,6 +22,13 @@ const TRANSITIONS: Array<[RecorderStatus, RecorderEvent, RecorderStatus]> = [
   ["connecting", "CONNECTED", "live"], // data channel opened
   ["connecting", "DONE", "idle"], // Esc/stop mid-connect (gen-counter cancel)
   ["connecting", "FAIL", "error"], // connect threw
+  // #38: backgrounding while still connecting (dc not open yet) is ALSO a
+  // pause, not a cancel — the fire() handler calls pause() for both
+  // live/connecting statuses (see lifecycle-flush's "pause-persist"), and
+  // pause() must land somewhere resumable rather than get stuck at
+  // "connecting" forever (primaryAction("connecting") is "cancel", which
+  // would wrongly finalize/save on the next tap instead of resuming).
+  ["connecting", "PAUSE", "paused"],
   ["live", "PAUSE", "paused"], // future: close pc, bank elapsed
   ["live", "DONE", "idle"], // finish — distinct from pause
   ["live", "FAIL", "error"], // mid-session error

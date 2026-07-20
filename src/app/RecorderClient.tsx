@@ -9,8 +9,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { upload } from "@vercel/blob/client";
-import { primaryAction, guardBusy, isCaptureBusy, type SaveState } from "@/lib/recorder-state";
-import { shouldFlushOnHide } from "@/lib/lifecycle-flush";
+import { primaryAction, guardBusy, type SaveState } from "@/lib/recorder-state";
+import { hideAction } from "@/lib/lifecycle-flush";
 import { uploadEntryBlobs } from "@/lib/blob-upload";
 import { buildSaveBody, withinKeepaliveCap } from "@/lib/save-payload";
 import { ulid } from "@/lib/ulid";
@@ -243,18 +243,28 @@ export default function RecorderClient() {
       onStop,
     });
 
-  // Issue #23 Task 8 — lifecycle flush: while a capture session is in flight
-  // OR a save is between Done and the POST settling, a backgrounded/discarded
-  // tab can't be trusted to keep a setTimeout or an in-flight fetch(audio
-  // upload) alive. Register pagehide/visibilitychange listeners for exactly
-  // that window (shouldFlushOnHide) and, on fire, force out a TRANSCRIPT-ONLY
-  // keepalive JSON save (audio: null, photos: []) — blob uploads can't be
-  // trusted to finish in a hidden tab, and posting refs to blobs that never
-  // landed would create rows pointing at nothing. The audio/photos still land
-  // later via the normal path (accelerated below) or, once built, Task 9's
-  // IndexedDB recovery — this flush's insert is NOT deleted by that later
-  // path, only replaced/attached onto via the Task 1 idempotent upsert.
-  // Mirrors elapsedSec so fire() (below) reads a live value without the
+  // Issue #23 Task 8 / #38 continuous capture — lifecycle handling on
+  // pagehide/visibilitychange-hidden, split by hideAction into two regimes:
+  //
+  // "pause-persist" (a capture session is in flight — connecting/live/paused):
+  // backgrounding is a PAUSE, never an implicit Done (#38 — nothing is a new
+  // entry until Done). Pause the session (freezes/banks the timer, closes the
+  // mic now) and refresh a resumable, TRANSCRIPT-ONLY IndexedDB draft
+  // (audio: null) under the live entryIdRef — deliberately NO server POST, so
+  // no partial transcript can ever precede or lose to Done's real save under
+  // the transcript-first-write-wins upsert (entry-sql.ts). entryIdRef is left
+  // alone (only a full-refs 201 clears it), which is what lets tapping record
+  // again resume the SAME entry.
+  //
+  // "save-flush" (a Done already committed — status back to idle, saveState
+  // finishing/saving): unchanged #23 behavior — a backgrounded/discarded tab
+  // can't be trusted to keep a setTimeout or an in-flight fetch(audio upload)
+  // alive, so force out a transcript-only keepalive JSON save (audio: null,
+  // photos: []). The audio/photos still land later via the normal path
+  // (accelerated below) or IndexedDB recovery; this flush's insert is never
+  // deleted by that later path, only attached onto via the idempotent upsert.
+  //
+  // Mirrors elapsedSec so fire() reads a live value without the
   // listener-registration effect re-running on every 250ms timer tick.
   const elapsedSecRef = useRef(elapsedSec);
   useEffect(() => {
@@ -263,8 +273,10 @@ export default function RecorderClient() {
   // iOS bfcache restore fires `pageshow`, not necessarily `visibilitychange`
   // — without this, a page restored from bfcache after a flush could carry a
   // stale "already fired" guard into its NEXT hide and silently skip that
-  // flush. Registered unconditionally (not gated on shouldFlushOnHide, unlike
-  // the effect below) so it's armed across the whole component lifetime.
+  // flush (or that pause-persist). Registered unconditionally (not gated on
+  // hideAction, unlike the effect below) so it's armed across the whole
+  // component lifetime — a background-pause, return, resume, and a SECOND
+  // background each pause/persist again.
   useEffect(() => {
     const onPageShow = () => {
       flushFiredRef.current = false;
@@ -273,7 +285,8 @@ export default function RecorderClient() {
     return () => window.removeEventListener("pageshow", onPageShow);
   }, []);
   useEffect(() => {
-    if (!shouldFlushOnHide(status, saveState)) return;
+    const action = hideAction(status, saveState);
+    if (action === "none") return;
 
     const fire = () => {
       // "Already fired" guard: pagehide and visibilitychange(hidden) commonly
@@ -281,25 +294,57 @@ export default function RecorderClient() {
       if (flushFiredRef.current) return;
       flushFiredRef.current = true;
 
-      // Merge the interim tail FIRST when still capturing, before reading the
-      // editor: stop() is what delivers the not-yet-finalized tail (Task 7),
-      // and TranscriptEditor's append/getValue are synchronous DOM ops (see
-      // TranscriptEditor.tsx — uncontrolled textarea via ref), so the merged
-      // text is readable immediately after stop() returns. Reading the editor
-      // BEFORE stop() (the original bug) POSTs a transcript truncated at the
-      // last completed segment — and since the server upsert is
-      // transcript-first-write-wins, that truncation is PERMANENT.
-      const captureBusy = isCaptureBusy(status);
-      if (captureBusy) stop();
+      if (action === "pause-persist") {
+        // Only live/connecting need an explicit pause() — a manually-paused
+        // session backgrounded again is already paused; just refresh its
+        // draft (idempotent put under the same id), never stop()/POST.
+        if (status === "live" || status === "connecting") pause();
 
-      const transcript = editorRef.current?.getValue().trim() ?? "";
-      if (planSave(transcript).kind !== "empty") {
-        const durationSeconds = captureBusy ? elapsedSecRef.current : pendingDurationRef.current;
+        // Read the editor AFTER pause(): pause() delivers the not-yet-
+        // finalized interim tail into the editor synchronously (mirrors
+        // stop()'s ordering — see useRecorder.pause()), so the merged text is
+        // readable immediately once pause() returns, before this draft is
+        // written. Reading the editor first would persist a transcript
+        // truncated at the last completed segment.
+        const transcript = editorRef.current?.getValue().trim() ?? "";
         const id = getEntryId();
         const body = buildSaveBody({
           id,
           transcript,
-          durationSeconds,
+          durationSeconds: elapsedSecRef.current,
+          journalId: active?.id,
+          writtenAt: writtenAtIso(writtenDate),
+          audio: null,
+          photos: [],
+        });
+        try {
+          void idbPendingStore.put({
+            id,
+            body,
+            audio: null,
+            photos: pendingPhotos.map((p) => ({ id: ulid(), blob: p.blob, mime: p.mime })),
+            createdAt: Date.now(),
+          });
+        } catch {
+          /* best-effort — a killed page can't be blocked on IndexedDB either */
+        }
+        // No fetch, no forceFlush: nothing was Done, so there is no save
+        // pipeline to accelerate. The pause's own FLUSH_MS teardown timer
+        // runs on its own schedule regardless of tab visibility.
+        return;
+      }
+
+      // "save-flush": Done already committed (status is idle here — Done's
+      // stop() drives status to idle synchronously before saveState leaves
+      // "idle" — so this path never needs to stop() a capture in flight; that
+      // case is always classified pause-persist above instead).
+      const transcript = editorRef.current?.getValue().trim() ?? "";
+      if (planSave(transcript).kind !== "empty") {
+        const id = getEntryId();
+        const body = buildSaveBody({
+          id,
+          transcript,
+          durationSeconds: pendingDurationRef.current,
           journalId: active?.id,
           writtenAt: writtenAtIso(writtenDate),
           audio: null,
@@ -340,12 +385,11 @@ export default function RecorderClient() {
         }).catch(() => {});
       }
 
-      // Accelerate any pending session teardown: a live/paused/connecting
-      // session already got its implicit Done above (stop()); a Done already
-      // in flight (status back to idle, saveState "finishing") just gets its
-      // pending flush timer run now instead of after FLUSH_MS. No-op in
-      // "saving" (the flush already fired earlier) — this call is a bonus,
-      // not the save itself.
+      // Accelerate the pending save-flush teardown: a Done already in flight
+      // (status back to idle, saveState "finishing") just gets its pending
+      // flush timer run now instead of after FLUSH_MS. No-op in "saving" (the
+      // flush already fired earlier) — this call is a bonus, not the save
+      // itself.
       forceFlush();
     };
 
@@ -359,7 +403,16 @@ export default function RecorderClient() {
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("pagehide", fire);
     };
-  }, [status, saveState, active?.id, writtenDate, stop, forceFlush, getEntryId, pendingPhotos]);
+  }, [
+    status,
+    saveState,
+    active?.id,
+    writtenDate,
+    pause,
+    forceFlush,
+    getEntryId,
+    pendingPhotos,
+  ]);
 
   // The one circular control's action is derived from status (single tested
   // source of truth — see primaryAction).
