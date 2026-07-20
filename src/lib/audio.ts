@@ -2,12 +2,21 @@
 // the pure part. pickAudioMimeType chooses the best MediaRecorder container the
 // platform supports, so Phase 2's saved blob has a known, server-friendly mime.
 
-// Priority order: Opus-in-WebM is the small, widely-supported default;
-// mp4/aac is the iOS/Safari fallback; ogg is a last resort.
+// Priority order: mp4/AAC first. Field data (2026-07-19) showed the iOS
+// home-screen PWA's WebKit lies on BOTH webm probes — isTypeSupported and
+// canPlayType both pass for "audio/webm;codecs=opus" — then plays the saved
+// file silently. Probe answers can't be trusted to demote mp4 on that engine,
+// so mp4/AAC (the one container every engine both records and plays) goes
+// first regardless of what the webm probes claim. A bare "audio/mp4" is kept
+// as a second mp4 candidate since Safari's isTypeSupported can be picky about
+// the codecs string. WebM stays as the fallback for engines that can record
+// it but not mp4 (older Chrome); ogg is the last resort. `fixWebmDuration`
+// (useRecorder) only patches duration on that webm fallback path.
 export const AUDIO_MIME_CANDIDATES = [
+  "audio/mp4;codecs=mp4a.40.2",
+  "audio/mp4",
   "audio/webm;codecs=opus",
   "audio/webm",
-  "audio/mp4",
   "audio/ogg;codecs=opus",
 ] as const;
 

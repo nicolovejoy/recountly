@@ -4,8 +4,10 @@ import { pickAudioMimeType, AUDIO_MIME_CANDIDATES } from "./audio";
 describe("pickAudioMimeType", () => {
   it("returns the first candidate the platform supports", () => {
     const supported = new Set(["audio/webm", "audio/mp4"]);
-    // opus-webm isn't supported here, so it should fall through to audio/webm.
-    expect(pickAudioMimeType((t) => supported.has(t))).toBe("audio/webm");
+    // Neither mp4 candidate with the codecs string is supported here, and the
+    // bare "audio/mp4" is, so it should win over webm despite webm being
+    // listed too.
+    expect(pickAudioMimeType((t) => supported.has(t))).toBe("audio/mp4");
   });
 
   it("prefers the highest-priority candidate when several are supported", () => {
@@ -23,16 +25,30 @@ describe("pickAudioMimeType", () => {
     );
   });
 
-  it("picks webm when it's both recordable and playable (desktop Chrome)", () => {
+  it("picks mp4a.40.2 when everything passes (new Chrome/Safari norm)", () => {
     expect(pickAudioMimeType(() => true, undefined, () => "probably")).toBe(
-      AUDIO_MIME_CANDIDATES[0],
+      "audio/mp4;codecs=mp4a.40.2",
     );
   });
 
-  it("falls through to mp4 when webm is recordable but not playable (iOS PWA bug)", () => {
-    // Mirrors the real iOS home-screen PWA bug: isTypeSupported lies and says
-    // webm is recordable, but canPlayType reports it can't actually be played.
-    const canRecord = new Set(["audio/webm;codecs=opus", "audio/webm", "audio/mp4"]);
+  it("falls through to bare mp4 when the codecs-string probe fails (Safari-style)", () => {
+    const canRecord = new Set(["audio/mp4", "audio/webm;codecs=opus", "audio/webm"]);
+    expect(
+      pickAudioMimeType((t) => canRecord.has(t), undefined, () => "probably"),
+    ).toBe("audio/mp4");
+  });
+
+  it("falls through to webm only when both mp4 variants are unrecordable (old-Chrome fallback)", () => {
+    const canRecord = new Set(["audio/webm;codecs=opus", "audio/webm"]);
+    expect(
+      pickAudioMimeType((t) => canRecord.has(t), undefined, () => "probably"),
+    ).toBe("audio/webm;codecs=opus");
+  });
+
+  it("falls through past an unplayable candidate to the next recordable+playable one", () => {
+    // Mirrors the dual-gate mechanism #49 added: recordable alone isn't
+    // enough, playback must also pass.
+    const canRecord = new Set(["audio/mp4;codecs=mp4a.40.2", "audio/mp4"]);
     const playable: Record<string, string> = { "audio/mp4": "maybe" };
     expect(
       pickAudioMimeType((t) => canRecord.has(t), undefined, (t) => playable[t] ?? ""),
