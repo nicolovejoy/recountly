@@ -11,6 +11,33 @@
 import { softDeleteEntry, getEntry, getJournal, moveEntry } from "@/lib/db";
 import { getServerSession } from "@/lib/auth-server";
 
+// Single-entry fetch for the detail page (issue #39). Photos are NOT included
+// here — the page reuses the existing GET /api/entries/[id]/photos rather
+// than duplicating that query. Mirrors PATCH's "trashed looks like unknown"
+// guard so a bookmarked/trashed id 404s instead of leaking the row.
+export async function GET(
+  _req: Request,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  if (!(await getServerSession())) {
+    return Response.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  const { id } = await params;
+
+  try {
+    const entry = await getEntry(id);
+    if (!entry || entry.deletedAt) {
+      return Response.json({ error: "Not found" }, { status: 404 });
+    }
+    return Response.json({ entry });
+  } catch (err) {
+    return Response.json(
+      { error: "Failed to load entry", detail: String(err) },
+      { status: 500 },
+    );
+  }
+}
+
 export async function DELETE(
   _req: Request,
   { params }: { params: Promise<{ id: string }> },

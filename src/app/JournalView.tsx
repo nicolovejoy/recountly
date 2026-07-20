@@ -215,6 +215,7 @@ export default function JournalView({ journalId }: { journalId: string }) {
                   entry={e}
                   journalLabel={null}
                   journals={journals}
+                  selectMode={bulk.selectMode}
                   onTrashed={(id) =>
                     setEntries((prev) => prev?.filter((x) => x.id !== id) ?? prev)
                   }

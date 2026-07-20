@@ -18,6 +18,7 @@ describe("activeTab", () => {
     ["/library/trash", "library"],
     ["/library/01hxyz", "library"],
     ["/search", "search"],
+    ["/entry/01hxyz", "library"],
   ])("%s → %s", (pathname, tab) => {
     expect(activeTab(pathname)).toBe(tab);
   });
@@ -30,5 +31,10 @@ describe("activeTab", () => {
   it("does not match prefixes that aren't path segments", () => {
     expect(activeTab("/librarian")).toBe("capture");
     expect(activeTab("/searching")).toBe("capture");
+    expect(activeTab("/entryway")).toBe("capture");
+  });
+
+  it("highlights library for the bare /entry path too", () => {
+    expect(activeTab("/entry")).toBe("library");
   });
 });

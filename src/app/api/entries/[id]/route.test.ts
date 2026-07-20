@@ -11,7 +11,7 @@ vi.mock("@/lib/db", () => ({
   moveEntry: vi.fn(),
 }));
 
-import { DELETE, PATCH } from "./route";
+import { DELETE, PATCH, GET } from "./route";
 import { getServerSession } from "@/lib/auth-server";
 import { softDeleteEntry, getEntry, getJournal, moveEntry } from "@/lib/db";
 
@@ -23,6 +23,11 @@ const mockMove = vi.mocked(moveEntry);
 
 const callDelete = (id: string) =>
   DELETE(new Request(`http://test/api/entries/${id}`, { method: "DELETE" }), {
+    params: Promise.resolve({ id }),
+  });
+
+const callGet = (id: string) =>
+  GET(new Request(`http://test/api/entries/${id}`), {
     params: Promise.resolve({ id }),
   });
 
@@ -68,6 +73,49 @@ describe("DELETE /api/entries/[id]", () => {
   it("500s with detail when softDeleteEntry throws", async () => {
     mockSoftDelete.mockRejectedValue(new Error("boom"));
     const res = await callDelete("e1");
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body.detail).toContain("boom");
+  });
+});
+
+describe("GET /api/entries/[id] (issue #39 detail page)", () => {
+  it("401s without a session", async () => {
+    mockSession.mockResolvedValue(null as never);
+    const res = await callGet("e1");
+    expect(res.status).toBe(401);
+    expect(await res.json()).toEqual({ error: "Unauthorized" });
+    expect(mockGetEntry).not.toHaveBeenCalled();
+  });
+
+  it("404s for an unknown id", async () => {
+    mockGetEntry.mockResolvedValue(null);
+    const res = await callGet("nope");
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ error: "Not found" });
+  });
+
+  it("404s for a trashed entry (no leaking a bookmarked id)", async () => {
+    mockGetEntry.mockResolvedValue({
+      id: "e1",
+      journalId: null,
+      deletedAt: "2026-07-19T00:00:00.000Z",
+    } as never);
+    const res = await callGet("e1");
+    expect(res.status).toBe(404);
+  });
+
+  it("200s with the entry for a live id", async () => {
+    const entry = liveEntry(null);
+    mockGetEntry.mockResolvedValue(entry);
+    const res = await callGet("e1");
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ entry });
+  });
+
+  it("500s with detail when getEntry throws", async () => {
+    mockGetEntry.mockRejectedValue(new Error("boom"));
+    const res = await callGet("e1");
     expect(res.status).toBe(500);
     const body = await res.json();
     expect(body.detail).toContain("boom");
