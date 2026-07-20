@@ -524,7 +524,11 @@ export default function RecorderClient() {
         </p>
       )}
 
-      <TranscriptEditor ref={editorRef} interim={interim} />
+      <TranscriptEditor
+        ref={editorRef}
+        interim={interim}
+        listening={status === "live" || status === "connecting"}
+      />
 
       {/* Save status lives in a fixed toast, not inline — on a phone the area
           below the transcript is often beneath the fold, which made save
