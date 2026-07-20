@@ -55,7 +55,7 @@ export default function PendingSaveRecovery() {
   if (recovered === 0) return null;
 
   return (
-    <div className="fixed inset-x-0 top-3 z-50 flex justify-center px-4">
+    <div className="fixed inset-x-0 top-[calc(0.75rem+env(safe-area-inset-top))] z-50 flex justify-center px-4">
       <p className="rounded-full border border-foreground/15 bg-background px-4 py-1.5 text-sm text-green-600 shadow-lg">
         Recovered {recovered} unsaved {recovered === 1 ? "entry" : "entries"}
       </p>

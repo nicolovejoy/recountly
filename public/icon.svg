@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- recountly "REC lamp" mark: dark rounded-square background, red REC dot
+       with a subtle glow ring. Mirrors BrandLamp's live-state red (#dc2626)
+       and the app's dark background (#0a0a0a). Source for icon-192/512. -->
+  <rect width="512" height="512" rx="112" fill="#0a0a0a" />
+  <circle cx="256" cy="256" r="170" fill="#dc2626" opacity="0.16" />
+  <circle cx="256" cy="256" r="100" fill="#dc2626" />
+</svg>

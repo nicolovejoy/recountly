@@ -22,4 +22,21 @@ describe("isPublicPath", () => {
     expect(isPublicPath("/login-help")).toBe(false);
     expect(isPublicPath("/api/authx")).toBe(false);
   });
+
+  it("lets the PWA manifest and home-screen icons through (iOS/Android fetch them unauthenticated)", () => {
+    expect(isPublicPath("/manifest.webmanifest")).toBe(true);
+    expect(isPublicPath("/icon-192.png")).toBe(true);
+    expect(isPublicPath("/icon-512.png")).toBe(true);
+    expect(isPublicPath("/icon-512-maskable.png")).toBe(true);
+    expect(isPublicPath("/apple-touch-icon.png")).toBe(true);
+  });
+
+  it("does not treat a lookalike PWA asset path as public", () => {
+    expect(isPublicPath("/manifest-evil.json")).toBe(false);
+    expect(isPublicPath("/manifest.json")).toBe(false);
+    expect(isPublicPath("/icon-999.png")).toBe(false);
+    expect(isPublicPath("/icon-192.png/../../api/entries")).toBe(false);
+    expect(isPublicPath("/apple-touch-icon.png.evil")).toBe(false);
+    expect(isPublicPath("/icons/icon-192.png")).toBe(false);
+  });
 });
