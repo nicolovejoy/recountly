@@ -75,6 +75,22 @@ describe("primaryAction", () => {
   });
 });
 
+// #38 continuous capture: tapping the one circular control while a session
+// is paused (whether the user paused manually or it was backgrounded into a
+// pause-persist draft — see lifecycle-flush's hideAction) resumes, never
+// starts a fresh entry. This is the tested contract "record-while-paused
+// resumes the same entry" leans on: primaryAction never routes a paused
+// status to "start", and RecorderClient's entryIdRef is left untouched across
+// a pause (only a full-refs 201 save clears it), so calling the hook's
+// resume() from this status reconnects into the SAME banked timer/transcript
+// instead of minting a new one.
+describe("primaryAction (#38: record-while-paused resumes the same entry)", () => {
+  it("routes a paused status to resume, never start", () => {
+    expect(primaryAction("paused")).toBe("resume");
+    expect(primaryAction("paused")).not.toBe("start");
+  });
+});
+
 // isCaptureBusy feeds the #29 tab-bar capture guard: while a session is in
 // flight (connecting/live/paused), navigating away would unmount the recorder
 // and kill the session, so the other tabs are disabled.
