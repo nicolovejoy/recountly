@@ -17,3 +17,17 @@ export function writtenAtIso(dateStr: string): string | undefined {
   }
   return d.toISOString();
 }
+
+// Inverse of writtenAtIso, for the post-save "New recording" sticky written
+// date (issue #39): given a saved entry's ISO writtenAt, recover the
+// YYYY-MM-DD an <input type="date"> can preload. Reads the LOCAL calendar
+// day (not the UTC one baked into the ISO string) — the noon anchor above
+// means this round-trips correctly for any zone within ~12h of UTC.
+export function writtenAtDateInput(iso: string): string | undefined {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return undefined;
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}

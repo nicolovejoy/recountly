@@ -9,13 +9,20 @@
 // EntryCard's photoCount-gated fetch). Move…/Trash mirror EntryCard's
 // handlers; trashing an entry you're looking at leaves nothing to show, so
 // success routes back to Library instead of leaving a dead page mounted.
+//
+// ?saved=1 (RecorderClient's post-save redirect) shows a transient "Saved ✓"
+// toast, matching RecorderClient's own toast idiom, plus a persistent "New
+// recording" link back to Capture — carrying the written date forward via
+// ?writtenAt= since (unlike the active journal, which is DB-backed) it's
+// local RecorderClient state that would otherwise reset.
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { formatElapsed } from "@/lib/elapsed";
 import type { EntryRecord } from "@/lib/entry";
 import type { PhotoRecord } from "@/lib/photo";
+import { writtenAtDateInput } from "@/lib/written-at";
 import { useJournals } from "./useJournals";
 
 // Sentinel for the Move picker's "Unfiled" option — same idea as
@@ -29,6 +36,17 @@ function formatWhen(iso: string): string {
 
 export default function EntryDetail({ id }: { id: string }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const justSaved = searchParams.get("saved") === "1";
+  // The toast auto-clears; the "New recording" link stays as long as
+  // ?saved=1 is in the URL — the toast fading isn't a reason to hide it.
+  const [toastDismissed, setToastDismissed] = useState(false);
+  useEffect(() => {
+    if (!justSaved) return;
+    const t = setTimeout(() => setToastDismissed(true), 4000);
+    return () => clearTimeout(t);
+  }, [justSaved]);
+
   // undefined = loading; null = 404 (unknown or trashed).
   const [entry, setEntry] = useState<EntryRecord | null | undefined>(undefined);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -125,12 +143,32 @@ export default function EntryDetail({ id }: { id: string }) {
 
   const journalLabel =
     entry?.journalId ? (journals?.find((j) => j.id === entry.journalId)?.label ?? "journal") : null;
+  const writtenDateParam = entry?.writtenAt ? writtenAtDateInput(entry.writtenAt) : undefined;
+  const newRecordingHref = writtenDateParam ? `/?writtenAt=${writtenDateParam}` : "/";
 
   return (
     <section className="flex flex-col gap-4">
-      <Link href="/library" className="text-xs text-foreground/40 hover:text-foreground/70">
-        ← Library
-      </Link>
+      {justSaved && !toastDismissed && (
+        <div className="fixed inset-x-0 top-[calc(0.75rem+env(safe-area-inset-top))] z-50 flex justify-center px-4">
+          <p className="rounded-full border border-foreground/15 bg-background px-4 py-1.5 text-sm text-green-600 shadow-lg">
+            Saved ✓
+          </p>
+        </div>
+      )}
+
+      <div className="flex items-center justify-between gap-3">
+        <Link href="/library" className="text-xs text-foreground/40 hover:text-foreground/70">
+          ← Library
+        </Link>
+        {justSaved && (
+          <Link
+            href={newRecordingHref}
+            className="rounded-full border border-foreground/20 px-3 py-1 text-xs text-foreground/70 transition-colors hover:bg-foreground/[0.06]"
+          >
+            New recording
+          </Link>
+        )}
+      </div>
 
       {loadError && (
         <p className="text-sm text-red-500">Couldn’t load entry: {loadError}</p>

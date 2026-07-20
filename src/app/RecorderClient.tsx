@@ -7,6 +7,7 @@
 // Header chrome (brand + build stamp) and the tab bar live in (tabs)/layout.
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { upload } from "@vercel/blob/client";
 import { primaryAction, guardBusy, isCaptureBusy, type SaveState } from "@/lib/recorder-state";
 import { shouldFlushOnHide } from "@/lib/lifecycle-flush";
@@ -28,6 +29,12 @@ import JournalBar from "./JournalBar";
 import PhotoTray from "./PhotoTray";
 
 export default function RecorderClient() {
+  const router = useRouter();
+  // Issue #39: "New recording" from the post-save detail page carries the
+  // written date forward via ?writtenAt=YYYY-MM-DD (the active journal is
+  // DB-backed and survives navigation on its own — see useJournals — but
+  // writtenDate is local state here, so it needs this explicit hand-off).
+  const searchParams = useSearchParams();
   const editorRef = useRef<TranscriptEditorHandle | null>(null);
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -41,7 +48,7 @@ export default function RecorderClient() {
   }, [saveState]);
 
   const { journals, active, error: journalsError, create, setActive } = useJournals();
-  const [writtenDate, setWrittenDate] = useState("");
+  const [writtenDate, setWrittenDate] = useState(() => searchParams.get("writtenAt") ?? "");
   // Photos pending for the entry being captured. Downscaled at attach time
   // (load-bearing: raw phone photos exceed Vercel's ~4.5MB body limit).
   // Cleared ONLY on successful save — photos are not best-effort.
@@ -195,11 +202,17 @@ export default function RecorderClient() {
         if (uploaded.audioError) {
           // The entry landed (transcript safe) but its audio didn't. Surface
           // the real error text — on the phone this toast is the only console.
+          // Stay on Capture (today's behavior) so the error toast is visible
+          // — no redirect on a save that wasn't fully clean.
           console.error("audio upload failed:", uploaded.audioError);
           setSaveError(`Saved, but the audio failed to upload: ${uploaded.audioError}`);
           setSaveState("error");
         } else {
+          // Issue #39: a fully clean save (transcript + audio + photos, no
+          // errors) hands off to the detail page, which shows its own
+          // "Saved ✓" toast via ?saved=1.
           setSaveState("saved");
+          router.push(`/entry/${id}?saved=1`);
         }
         // Fully landed — the next recording (or a retry after a later error)
         // gets a fresh id / flush guard.
@@ -221,7 +234,7 @@ export default function RecorderClient() {
         setSaveState("error");
       }
     },
-    [active?.id, writtenDate, pendingPhotos, getEntryId],
+    [active?.id, writtenDate, pendingPhotos, getEntryId, router],
   );
 
   const { status, elapsedSec, interim, errorMsg, log, start, pause, resume, stop, forceFlush, meterRef } =
