@@ -37,6 +37,9 @@ export function transition(status: RecorderStatus, event: RecorderEvent): Record
       break;
     case "connecting":
       if (event === "CONNECTED") return "live";
+      // #38: backgrounding while still connecting is a pause too — see the
+      // TRANSITIONS comment in recorder-state.test.ts.
+      if (event === "PAUSE") return "paused";
       if (event === "DONE") return "idle";
       if (event === "FAIL") return "error";
       break;

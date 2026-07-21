@@ -11,6 +11,16 @@
 // Flow: GET /api/realtime-token -> open RTCPeerConnection -> add mic track ->
 // open "oai-events" data channel -> POST SDP offer to /v1/realtime/calls ->
 // apply answer -> dispatch transcript events as they stream back.
+//
+// #38 (continuous capture): "silence does nothing" is a design invariant, not
+// just a bug fix — timerRef only drives the elapsed-seconds display (a
+// setInterval that reads the clock, never a countdown/deadline), and there is
+// no other inactivity/silence timer anywhere in this hook that pauses, stops,
+// or otherwise ends a session. The one thing that used to look like
+// "recording ends on silence" was H1 (backgrounding treated as an implicit
+// Done — see RecorderClient's lifecycle-flush effect), fixed by hideAction's
+// pause-persist regime, not by anything in here. A session stays `live`
+// indefinitely while the tab is foregrounded and the connection holds.
 
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import { connectRealtimeSession } from "@/lib/realtime";
@@ -394,6 +404,15 @@ export function useRecorder(opts: {
   const pause = useCallback(() => {
     genRef.current += 1; // stop any in-flight connect from touching the pc
     commitBuffer(); // finalize the in-flight segment before the flush-then-close
+    // #38: deliver the not-yet-finalized interim tail into the editor NOW,
+    // mirroring stop()'s ordering (see stop() below). A pause triggered by
+    // RecorderClient's lifecycle-flush effect reads the editor synchronously
+    // right after this call returns — it does not wait out FLUSH_MS for the
+    // real `completed` event — so without this, a background-pause would
+    // always drop the last in-progress words rather than just risking it on
+    // a slow network. onSegmentRef.current is a synchronous DOM append (see
+    // TranscriptEditor.tsx), so the merged text is readable immediately.
+    if (interimRef.current) onSegmentRef.current(interimRef.current);
     // Bank the running segment so the frozen timer reads correctly and resume
     // continues from here.
     accumulatedMsRef.current = bankSegment(

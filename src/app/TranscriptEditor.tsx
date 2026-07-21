@@ -23,9 +23,14 @@ export interface TranscriptEditorHandle {
 export default function TranscriptEditor({
   ref,
   interim,
+  listening,
 }: {
   ref: Ref<TranscriptEditorHandle>;
   interim: string;
+  /** #38: true while the mic is actually capturing (connecting or live) —
+   * drives the "listening" affordance below. Styling only; no caret/append
+   * logic changes with this prop. */
+  listening: boolean;
 }) {
   const textRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -53,11 +58,24 @@ export default function TranscriptEditor({
         ref={textRef}
         placeholder="Type or talk — your words appear here…"
         aria-label="Transcript"
-        className="min-h-48 w-full flex-1 resize-none rounded-xl border border-foreground/10 bg-transparent p-4 text-lg leading-relaxed outline-none placeholder:text-foreground/30 focus:border-foreground/30"
+        className={`min-h-48 w-full flex-1 resize-none rounded-xl border bg-transparent p-4 text-lg leading-relaxed outline-none placeholder:text-foreground/30 transition-colors focus:border-foreground/30 ${
+          listening ? "border-foreground/10 border-l-4 border-l-red-500/70" : "border-foreground/10"
+        }`}
       />
       {interim && (
-        <p className="px-4 text-lg leading-relaxed text-foreground/40">{interim}</p>
+        <p
+          className={`px-4 text-lg leading-relaxed ${
+            listening ? "text-foreground/30 italic" : "text-foreground/40"
+          }`}
+        >
+          {interim}
+        </p>
       )}
+      <p className="px-4 text-xs text-foreground/40">
+        {listening
+          ? "Listening — you can type corrections; spoken words append at the end."
+          : "Type or edit freely."}
+      </p>
     </div>
   );
 }

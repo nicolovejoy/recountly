@@ -22,6 +22,13 @@ const TRANSITIONS: Array<[RecorderStatus, RecorderEvent, RecorderStatus]> = [
   ["connecting", "CONNECTED", "live"], // data channel opened
   ["connecting", "DONE", "idle"], // Esc/stop mid-connect (gen-counter cancel)
   ["connecting", "FAIL", "error"], // connect threw
+  // #38: backgrounding while still connecting (dc not open yet) is ALSO a
+  // pause, not a cancel — the fire() handler calls pause() for both
+  // live/connecting statuses (see lifecycle-flush's "pause-persist"), and
+  // pause() must land somewhere resumable rather than get stuck at
+  // "connecting" forever (primaryAction("connecting") is "cancel", which
+  // would wrongly finalize/save on the next tap instead of resuming).
+  ["connecting", "PAUSE", "paused"],
   ["live", "PAUSE", "paused"], // future: close pc, bank elapsed
   ["live", "DONE", "idle"], // finish — distinct from pause
   ["live", "FAIL", "error"], // mid-session error
@@ -65,6 +72,22 @@ describe("primaryAction", () => {
     ["paused", "resume"],
   ] as const)("%s → %s", (status, action) => {
     expect(primaryAction(status)).toBe(action);
+  });
+});
+
+// #38 continuous capture: tapping the one circular control while a session
+// is paused (whether the user paused manually or it was backgrounded into a
+// pause-persist draft — see lifecycle-flush's hideAction) resumes, never
+// starts a fresh entry. This is the tested contract "record-while-paused
+// resumes the same entry" leans on: primaryAction never routes a paused
+// status to "start", and RecorderClient's entryIdRef is left untouched across
+// a pause (only a full-refs 201 save clears it), so calling the hook's
+// resume() from this status reconnects into the SAME banked timer/transcript
+// instead of minting a new one.
+describe("primaryAction (#38: record-while-paused resumes the same entry)", () => {
+  it("routes a paused status to resume, never start", () => {
+    expect(primaryAction("paused")).toBe("resume");
+    expect(primaryAction("paused")).not.toBe("start");
   });
 });
 
