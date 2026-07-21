@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Project status: durable save (#23 A+B), move entries (#28), nav polish + audio-duration fix (#41) all shipped 2026-07-19 (PRs #37/#42/#43/#44) — live on recountly.org, auth-gated. Capture/Library/Search tabs, journals, trash, FTS search, move + audit log. 407 vitest tests. Design of record: `docs/organization-and-navigation.md`.
+## Project status: PWA (#48), iOS audio codec fixes (#49/#51), entry detail page (#39→PR #50), continuous capture (#38→PR #52) all shipped + phone-smoked 2026-07-19/20 — live on recountly.org, auth-gated. Capture/Library/Search tabs, journals, trash, FTS search, move + audit log, per-entry pages. 482 vitest tests. Design of record: `docs/organization-and-navigation.md` + plan `docs/superpowers/plans/2026-07-19-continuous-capture-entry-detail.md`.
 
 Live transcription works end-to-end: speak and words appear via a direct browser→OpenAI
 WebRTC connection (mic meter + in-app error surfacing in place). The transcript is now an
@@ -250,17 +250,43 @@ that's how the phone told us the root cause). Owner verified audio save works. #
 via PR #47 (select-all, bulk trash/move in journal+Unfiled, "Oldest first" relabel);
 search-view select mode deliberately not built.
 
+**Shipped 2026-07-19 late / 2026-07-20 (this arc — all subagent plan/implement/review):**
+(1) **PWA #48**: `src/app/manifest.ts`, REC-lamp icon set, black-translucent + `viewportFit:
+cover`; ⚠️ manifest + icons are fetched UNCREDENTIALED by iOS → exact-match allowlist in
+`isPublicPath` (tested, near-misses stay gated). Home-screen app has its own cookie jar —
+one login, then the 30-day rolling session holds. (2) **iOS PWA audio saga**: standalone-PWA
+recordings saved WebM that WebKit can't play (silent/garbled/Error) — ⚠️ **WebKit in the iOS
+PWA container lies on BOTH probes** (`MediaRecorder.isTypeSupported` AND `canPlayType` pass
+for `audio/webm;codecs=opus`, playback still broken). #49 added a canPlayType gate
+(insufficient, kept as defense); **#51 made `AUDIO_MIME_CANDIDATES` mp4-first** —
+`audio/mp4;codecs=mp4a.40.2` records+plays everywhere (verified incl. Chrome duration-on-load;
+`fixWebmDuration` now only on the webm fallback path). Phone-verified: mp4 recordings play.
+Old WebM test entries were unfixable (trashed by owner). (3) **#39 entry detail (PR #50)**:
+`GET /api/entries/[id]` (401/404-trashed/200 + route tests), `/entry/[id]` transcript-first
+page in `(tabs)` (Library tab lit), whole-card `Link` (actions/audio outside the anchor),
+collapsed photo thumbs, expand-in-place removed, Done-save → `/entry/<id>?saved=1` with
+"New recording" sticky-date link, one-at-a-time audio (`audio-exclusive.ts` pauses other
+players on play). (4) **#38 continuous capture (PR #52)**: *nothing is a new entry until
+Done* — `hideAction` predicate routes backgrounding-while-capturing to **pause + IndexedDB
+draft refresh, NO server POST** (Done stays the only transcript writer, upsert untouched —
+this was the flush/truncation tension, resolved as option i); record-with-paused-session
+resumes the SAME entry; added `connecting+PAUSE→paused` transition (was a wedge); interim
+tail merges on pause before the editor read; "listening" textarea affordance. The reported
+"ends on silence" was backgrounding-as-implicit-Done, not a silence timer. Follow-ups filed:
+**#53** per-segment audio (`entry_audio` child table — the one open schema question),
+**#54** instant post-save nav with cycling placeholder + honest failure notes.
+
 **Next Steps**:
-- **PWA** (owner asked): manifest + Apple touch icons + `display: standalone` — small, next up.
-- **#38/#39** capture-session UX + entry detail page (post-save nav, whole-card tap, continuous
-  capture; note Phase B's backgrounding-=-implicit-Done) — short design pass first.
+- **#54** post-save: navigate to detail immediately, cycling status placeholder, poll until
+  entry + enrichment land, amber notes on stuck uploads (design in the issue).
+- **#52 phone smoke** (continuous capture, now deployed): background mid-recording → reopen
+  → paused not saved; record resumes same entry; Done → one entry, full transcript.
 - **#35** mother-site style pass + desktop top-nav; **Node 22 + pnpm 10 chore** (before
   passkeys; verify Vercel runtime too).
 - Then: capture polish (`page_label` + sticky) → **#36** search increments → **#33** covers
-  (+ thumb variant). Parked: Phase B phone-only smokes (Done→lock, background mid-recording,
-  airplane recovery — low urgency, owner verified web), sequential photo uploads +
+  (+ thumb variant) → **#53** per-segment audio. Parked: sequential photo uploads +
   photoless-entry 500, EXIF portrait, optimistic journal-switch, photo-fetch retry,
-  orphan-blob purge sweep.
+  orphan-blob purge sweep, airplane-recovery smoke.
 - **Passkeys (WebAuthn) primary + email/password as break-glass fallback** (NOT SMS — rejected as
   weakest 2FA; NOT Sign in with Apple — needs $99 dev program). Better Auth `passkey()` plugin:
   add to `src/lib/auth.ts` (`rpID: "recountly.org"` + localhost), `passkeyClient()` in
