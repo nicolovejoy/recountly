@@ -16,7 +16,7 @@ export interface SqlQuery {
 // at the end; title/tags predate them. journal_id/written_at (physical-journal
 // archive) append after those.
 const COLUMNS =
-  "id, recorded_at, created_at, updated_at, duration_seconds, transcript, title, tags, audio_url, audio_mime, audio_bytes, audio_complete, summary, enriched_at, enrichment_model, journal_id, written_at";
+  "id, recorded_at, created_at, updated_at, duration_seconds, transcript, title, tags, audio_url, audio_mime, audio_bytes, audio_complete, summary, enriched_at, enrichment_model, journal_id, written_at, page_label";
 
 // Appended only to the list/search SELECTs (not the shared COLUMNS used by
 // insert/get) — the entry list UI needs a photo count to decide whether an
@@ -35,7 +35,7 @@ const PHOTO_COUNT_COLUMN =
 // other mutating write paths. All non-audio columns keep first-write-wins.
 export function insertEntrySql(rec: EntryRecord): SqlQuery {
   return {
-    text: `INSERT INTO entries (${COLUMNS}) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17) ON CONFLICT (id) DO UPDATE SET audio_url = EXCLUDED.audio_url, audio_mime = EXCLUDED.audio_mime, audio_bytes = EXCLUDED.audio_bytes, audio_complete = EXCLUDED.audio_complete, updated_at = EXCLUDED.updated_at WHERE entries.audio_url IS NULL AND EXCLUDED.audio_url IS NOT NULL`,
+    text: `INSERT INTO entries (${COLUMNS}) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18) ON CONFLICT (id) DO UPDATE SET audio_url = EXCLUDED.audio_url, audio_mime = EXCLUDED.audio_mime, audio_bytes = EXCLUDED.audio_bytes, audio_complete = EXCLUDED.audio_complete, updated_at = EXCLUDED.updated_at WHERE entries.audio_url IS NULL AND EXCLUDED.audio_url IS NOT NULL`,
     values: [
       rec.id,
       rec.recordedAt,
@@ -54,6 +54,7 @@ export function insertEntrySql(rec: EntryRecord): SqlQuery {
       rec.enrichmentModel,
       rec.journalId,
       rec.writtenAt,
+      rec.pageLabel,
     ],
   };
 }
@@ -265,6 +266,7 @@ export function rowToEntry(row: EntryRow): EntryRecord {
     audioComplete: row.audio_complete == null ? null : Boolean(row.audio_complete),
     journalId: row.journal_id == null ? null : String(row.journal_id),
     writtenAt: row.written_at == null ? null : toIso(row.written_at),
+    pageLabel: row.page_label == null ? null : String(row.page_label),
     // Only present on rows from listEntriesSql/searchEntriesSql (the
     // PHOTO_COUNT_COLUMN subselect); absent on getEntrySql/insert rows, where
     // row.photo_count is undefined and this stays undefined too.

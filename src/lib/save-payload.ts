@@ -30,6 +30,7 @@ export interface SaveRequestBody {
   recordedAt?: string; // ISO; omitted → server stamps now
   journalId?: string;
   writtenAt?: string; // ISO
+  pageLabel?: string; // free-text page reference (e.g. "pp. 14–16")
   audio?: SaveAudioRef | null;
   photos: SavePhotoRef[]; // [] when none
 }
@@ -42,6 +43,7 @@ export function buildSaveBody(input: {
   recordedAt?: string;
   journalId?: string;
   writtenAt?: string;
+  pageLabel?: string;
   audio: SaveAudioRef | null;
   photos: SavePhotoRef[];
 }): SaveRequestBody {
@@ -55,6 +57,7 @@ export function buildSaveBody(input: {
   if (input.recordedAt) body.recordedAt = input.recordedAt;
   if (input.journalId) body.journalId = input.journalId;
   if (input.writtenAt) body.writtenAt = input.writtenAt;
+  if (input.pageLabel) body.pageLabel = input.pageLabel;
   return body;
 }
 
@@ -94,6 +97,7 @@ export function parseSaveBody(
     recordedAt: typeof b.recordedAt === "string" ? b.recordedAt : undefined,
     journalId: typeof b.journalId === "string" ? b.journalId : undefined,
     writtenAt: typeof b.writtenAt === "string" ? b.writtenAt : undefined,
+    pageLabel: typeof b.pageLabel === "string" ? b.pageLabel : undefined,
   };
   problems.push(...validateEntryInput(base));
 

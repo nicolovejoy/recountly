@@ -45,6 +45,7 @@ const rec: EntryRecord = {
   audioComplete: null,
   journalId: null,
   writtenAt: null,
+  pageLabel: "pp. 14–16",
 };
 
 // Records every query and replays a canned result set — no live DB needed.
@@ -83,6 +84,12 @@ describe("insertEntry", () => {
     expect(calls[0].values).toContain(rec.transcript);
     expect(out).toBe(rec);
   });
+
+  it("forwards pageLabel in the query values", async () => {
+    const { runner, calls } = fakeRunner();
+    await insertEntry(rec, runner);
+    expect(calls[0].values).toContain("pp. 14–16");
+  });
 });
 
 describe("listEntries", () => {
@@ -99,6 +106,12 @@ describe("listEntries", () => {
     const { runner, calls } = fakeRunner([]);
     await listEntries(undefined, runner);
     expect(calls[0].values).toEqual([50]);
+  });
+
+  it("round-trips page_label from a fake row", async () => {
+    const { runner } = fakeRunner([{ ...sampleRow, page_label: "pp. 14–16" }]);
+    const out = await listEntries(10, runner);
+    expect(out[0].pageLabel).toBe("pp. 14–16");
   });
 });
 

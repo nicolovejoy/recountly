@@ -187,6 +187,22 @@ describe("POST /api/entries", () => {
     expect(mockInsertPhoto).not.toHaveBeenCalled();
   });
 
+  it("201 with pageLabel: reaches the inserted record and the response body", async () => {
+    const res = await POST(jsonPost({ ...validBody, pageLabel: "pp. 14–16" }));
+    expect(res.status).toBe(201);
+    const body = await res.json();
+    expect(body.entry.pageLabel).toBe("pp. 14–16");
+    expect(mockInsertEntry.mock.calls[0][0]).toMatchObject({ pageLabel: "pp. 14–16" });
+  });
+
+  it("201 without pageLabel: record + body carry null", async () => {
+    const res = await POST(jsonPost(validBody));
+    expect(res.status).toBe(201);
+    const body = await res.json();
+    expect(body.entry.pageLabel).toBeNull();
+    expect(mockInsertEntry.mock.calls[0][0]).toMatchObject({ pageLabel: null });
+  });
+
   it("201 with audio ref: audioUrl = /api/audio/<id>", async () => {
     const res = await POST(
       jsonPost({

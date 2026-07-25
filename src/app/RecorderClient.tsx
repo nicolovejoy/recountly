@@ -16,6 +16,7 @@ import { buildSaveBody, withinKeepaliveCap } from "@/lib/save-payload";
 import { ulid } from "@/lib/ulid";
 import { downscalePhoto } from "@/lib/image";
 import { writtenAtIso } from "@/lib/written-at";
+import { suggestNextPageLabel, savedPageLabel } from "@/lib/page-label";
 import { planSave } from "@/lib/save-plan";
 import { idbPendingStore } from "./idb-pending";
 import { useRecorder, type RecordingResult } from "./useRecorder";
@@ -49,6 +50,45 @@ export default function RecorderClient() {
 
   const { journals, active, error: journalsError, create, setActive } = useJournals();
   const [writtenDate, setWrittenDate] = useState(() => searchParams.get("writtenAt") ?? "");
+  // Capture polish: the page reference (e.g. "pp. 14–16") for a journal
+  // reading. Seeded from ?pageLabel= (the post-save "New recording" hand-off)
+  // and, on a journal switch, auto-suggested from that journal's most recent
+  // entry — UNLESS the user has typed here or the URL seeded a value
+  // (touchedRef), so a suggestion never clobbers an explicit choice. NOT
+  // cleared after Done: Capture keeps the pre-fill for the next page.
+  const [pageLabel, setPageLabel] = useState(() => searchParams.get("pageLabel") ?? "");
+  const pageLabelTouchedRef = useRef((searchParams.get("pageLabel") ?? "") !== "");
+  const onPageLabelChange = useCallback((label: string) => {
+    pageLabelTouchedRef.current = true;
+    setPageLabel(label);
+  }, []);
+  // Sticky suggestion: when the active journal changes and the user hasn't
+  // typed a page label (or been seeded one via ?pageLabel=), pre-fill from that
+  // journal's most recent entry's label (suggestNextPageLabel — a raw
+  // passthrough today; the increment seam lives there). Never clobbers a
+  // touched/seeded value. Setting the field here does NOT mark it touched, so a
+  // later journal switch can re-suggest.
+  useEffect(() => {
+    if (!active?.id || pageLabelTouchedRef.current) return;
+    let alive = true;
+    // limit=1 — we only read entries[0]?.pageLabel, so don't pull a whole
+    // journal's transcripts/enrichment (parseSearchFilters clamps it).
+    fetch(`/api/entries?journal=${encodeURIComponent(active.id)}&limit=1`)
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`entries route ${res.status}`);
+        return (await res.json()) as { entries: { pageLabel: string | null }[] };
+      })
+      .then((data) => {
+        if (!alive || pageLabelTouchedRef.current) return;
+        setPageLabel(suggestNextPageLabel(data.entries[0]?.pageLabel));
+      })
+      .catch(() => {
+        // No suggestion is fine — the field just stays as-is.
+      });
+    return () => {
+      alive = false;
+    };
+  }, [active?.id]);
   // Photos pending for the entry being captured. Downscaled at attach time
   // (load-bearing: raw phone photos exceed Vercel's ~4.5MB body limit).
   // Cleared ONLY on successful save — photos are not best-effort.
@@ -119,6 +159,7 @@ export default function RecorderClient() {
     transcript: string;
     journalId: string | undefined;
     writtenAt: string | undefined;
+    pageLabel: string | undefined;
     photos: { id: string; blob: Blob; mime: string }[];
   } | null>(null);
 
@@ -140,7 +181,7 @@ export default function RecorderClient() {
     const snapshot = finalSaveSnapshotRef.current;
     if (!snapshot) return;
     finalSaveSnapshotRef.current = null;
-    const { id, transcript, journalId, writtenAt, photos } = snapshot;
+    const { id, transcript, journalId, writtenAt, pageLabel, photos } = snapshot;
 
     const audio = result.audioBlob
       ? {
@@ -165,6 +206,7 @@ export default function RecorderClient() {
           durationSeconds: result.durationSeconds,
           journalId,
           writtenAt,
+          pageLabel,
           audio: null,
           photos: [],
         }),
@@ -193,6 +235,7 @@ export default function RecorderClient() {
       durationSeconds: result.durationSeconds,
       journalId,
       writtenAt,
+      pageLabel,
       audio: uploaded.audio,
       photos: uploaded.photos,
     });
@@ -227,6 +270,7 @@ export default function RecorderClient() {
               durationSeconds: result.durationSeconds,
               journalId,
               writtenAt,
+              pageLabel,
               audio: null,
               photos: [],
             }),
@@ -286,8 +330,17 @@ export default function RecorderClient() {
     const id = getEntryId();
     const journalId = active?.id;
     const writtenAt = writtenAtIso(writtenDate);
+    // Only file a page label under a journal — an Unfiled entry has no pages.
+    const savedLabel = savedPageLabel(journalId, pageLabel);
     const photos = pendingPhotos.map((p) => ({ id: ulid(), blob: p.blob, mime: p.mime }));
-    finalSaveSnapshotRef.current = { id, transcript, journalId, writtenAt, photos };
+    finalSaveSnapshotRef.current = {
+      id,
+      transcript,
+      journalId,
+      writtenAt,
+      pageLabel: savedLabel,
+      photos,
+    };
     // Finding 1 (transcript loss): the real save runs from onStop ~FLUSH_MS
     // later, but router.push below unmounts this component NOW — tearing down
     // the pagehide/visibilitychange flush net. A PWA killed within that window
@@ -306,6 +359,7 @@ export default function RecorderClient() {
           durationSeconds: pendingDurationRef.current,
           journalId,
           writtenAt,
+          pageLabel: savedLabel,
           audio: null,
           photos: [],
         }),
@@ -320,7 +374,7 @@ export default function RecorderClient() {
     pendingPhotos.forEach((p) => URL.revokeObjectURL(p.previewUrl));
     setPendingPhotos([]);
     router.push(`/entry/${id}?saved=1`);
-  }, [elapsedSec, stop, getEntryId, active?.id, writtenDate, pendingPhotos, router]);
+  }, [elapsedSec, stop, getEntryId, active?.id, writtenDate, pageLabel, pendingPhotos, router]);
 
   // Issue #23 Task 8 / #38 continuous capture — lifecycle handling on
   // pagehide/visibilitychange-hidden, split by hideAction into two regimes:
@@ -349,6 +403,12 @@ export default function RecorderClient() {
   useEffect(() => {
     elapsedSecRef.current = elapsedSec;
   }, [elapsedSec]);
+  // Mirror pageLabel so the flush closure reads a live value without the
+  // listener-registration effect re-running on every keystroke.
+  const pageLabelRef = useRef(pageLabel);
+  useEffect(() => {
+    pageLabelRef.current = pageLabel;
+  }, [pageLabel]);
   // iOS bfcache restore fires `pageshow`, not necessarily `visibilitychange`
   // — without this, a page restored from bfcache after a flush could carry a
   // stale "already fired" guard into its NEXT hide and silently skip that
@@ -393,6 +453,7 @@ export default function RecorderClient() {
           durationSeconds: elapsedSecRef.current,
           journalId: active?.id,
           writtenAt: writtenAtIso(writtenDate),
+          pageLabel: savedPageLabel(active?.id, pageLabelRef.current),
           audio: null,
           photos: [],
         });
@@ -426,6 +487,7 @@ export default function RecorderClient() {
           durationSeconds: pendingDurationRef.current,
           journalId: active?.id,
           writtenAt: writtenAtIso(writtenDate),
+          pageLabel: savedPageLabel(active?.id, pageLabelRef.current),
           audio: null,
           photos: [],
         });
@@ -570,6 +632,7 @@ export default function RecorderClient() {
           journals={journals}
           active={active}
           writtenDate={writtenDate}
+          pageLabel={pageLabel}
           onSelect={(id) => void setActive(id)}
           onCreate={async (label) => {
             const j = await create(label);
@@ -577,6 +640,7 @@ export default function RecorderClient() {
             return j !== null;
           }}
           onWrittenDateChange={setWrittenDate}
+          onPageLabelChange={onPageLabelChange}
         />
         <PhotoTray
           photos={pendingPhotos.map(({ key, previewUrl }) => ({ key, previewUrl }))}

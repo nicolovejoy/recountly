@@ -113,6 +113,18 @@ describe("GET /api/entries/[id] (issue #39 detail page)", () => {
     expect(await res.json()).toEqual({ entry });
   });
 
+  it("returns pageLabel on the loaded entry", async () => {
+    mockGetEntry.mockResolvedValue({
+      id: "e1",
+      journalId: null,
+      deletedAt: undefined,
+      pageLabel: "pp. 14–16",
+    } as never);
+    const res = await callGet("e1");
+    expect(res.status).toBe(200);
+    expect((await res.json()).entry.pageLabel).toBe("pp. 14–16");
+  });
+
   it("500s with detail when getEntry throws", async () => {
     mockGetEntry.mockRejectedValue(new Error("boom"));
     const res = await callGet("e1");

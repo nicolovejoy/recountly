@@ -34,6 +34,16 @@ multipart. What to check:
   "Recovered 1 unsaved entry" toast; the entry appears exactly once, audio and photos
   attached.
 
+### Page label + sticky suggestion (capture polish)
+
+- With a journal active, type a page reference (e.g. "pp. 14–16") in the Pages field →
+  Done → the entry's detail page shows a "pp. 14–16" chip in the date/journal row.
+- From that detail page tap "New recording" → the Pages field is pre-filled with the label
+  carried forward (alongside the written date).
+- Switch the active journal to a different notebook → the Pages field updates to a
+  suggestion drawn from that journal's most recent entry (blank if it has none); typing in
+  the field pins your value so a later switch won't overwrite it.
+
 ## Nav shell (#29)
 
 4. While recording (and while paused), the Library and Search tabs are disabled with

@@ -56,11 +56,16 @@ function EntryCardBody({
       {e.title && (
         <span className="text-xs text-foreground/40">{formatWhen(e.recordedAt)}</span>
       )}
-      {(journalLabel || e.writtenAt) && (
+      {(journalLabel || e.writtenAt || e.pageLabel) && (
         <div className="flex flex-wrap items-center gap-2 text-xs text-foreground/40">
           {journalLabel && (
             <span className="rounded-full border border-foreground/10 px-2 py-0.5">
               📓 {journalLabel}
+            </span>
+          )}
+          {e.pageLabel && (
+            <span className="rounded-full border border-foreground/10 px-2 py-0.5">
+              {e.pageLabel}
             </span>
           )}
           {e.writtenAt && (

@@ -16,16 +16,20 @@ export default function JournalBar({
   journals,
   active,
   writtenDate,
+  pageLabel,
   onSelect,
   onCreate,
   onWrittenDateChange,
+  onPageLabelChange,
 }: {
   journals: JournalRecord[] | null;
   active: JournalRecord | null;
   writtenDate: string;
+  pageLabel: string;
   onSelect: (id: string | null) => void;
   onCreate: (label: string) => Promise<boolean>;
   onWrittenDateChange: (date: string) => void;
+  onPageLabelChange: (label: string) => void;
 }) {
   const [creating, setCreating] = useState(false);
   const [newLabel, setNewLabel] = useState("");
@@ -111,6 +115,20 @@ export default function JournalBar({
             value={writtenDate}
             onChange={(e) => onWrittenDateChange(e.target.value)}
             aria-label="Date the page was written"
+            className={field}
+          />
+        </label>
+      )}
+
+      {active && (
+        <label className="flex items-center gap-1">
+          <span>Pages</span>
+          <input
+            type="text"
+            value={pageLabel}
+            onChange={(e) => onPageLabelChange(e.target.value)}
+            placeholder="pp. 14–16"
+            aria-label="Page reference"
             className={field}
           />
         </label>

@@ -34,14 +34,15 @@ const rec: EntryRecord = {
   audioComplete: true,
   journalId: null,
   writtenAt: null,
+  pageLabel: null,
 };
 
 describe("insertEntrySql", () => {
-  it("parameterizes all 17 columns in order", () => {
+  it("parameterizes all 18 columns in order", () => {
     const q = insertEntrySql(rec);
     expect(q.text).toMatch(/^INSERT INTO entries \(/);
     expect(q.text).toContain(
-      "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)",
+      "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)",
     );
     expect(q.values).toEqual([
       rec.id,
@@ -61,7 +62,14 @@ describe("insertEntrySql", () => {
       rec.enrichmentModel,
       rec.journalId,
       rec.writtenAt,
+      rec.pageLabel,
     ]);
+  });
+
+  it("keeps page_label first-write-wins: the ON CONFLICT DO UPDATE SET list excludes it", () => {
+    const q = insertEntrySql(rec);
+    const setClause = q.text.slice(q.text.indexOf("DO UPDATE SET"));
+    expect(setClause).not.toContain("page_label");
   });
 
   it("never inlines user text into the SQL (injection-safe)", () => {
@@ -362,6 +370,7 @@ describe("rowToEntry", () => {
       audioComplete: true,
       journalId: null,
       writtenAt: null,
+      pageLabel: null,
     });
   });
 
@@ -504,8 +513,8 @@ describe("journal archive columns", () => {
       writtenAt: "1994-03-02T00:00:00.000Z",
     };
     const q = insertEntrySql(journalRec);
-    expect(q.text).toContain("journal_id, written_at");
-    expect(q.values).toHaveLength(17);
+    expect(q.text).toContain("journal_id, written_at, page_label");
+    expect(q.values).toHaveLength(18);
     expect(q.values[15]).toBe("01JRNL");
     expect(q.values[16]).toBe("1994-03-02T00:00:00.000Z");
   });
@@ -521,6 +530,39 @@ describe("journal archive columns", () => {
     });
     expect(withValues.journalId).toBe("01JRNL");
     expect(withValues.writtenAt).toBe("1994-03-02T00:00:00.000Z");
+  });
+});
+
+describe("page_label column (capture polish)", () => {
+  const baseRow = {
+    id: "01HX",
+    recorded_at: "2026-06-13T01:00:00.000Z",
+    created_at: "2026-06-13T01:00:05.000Z",
+    updated_at: "2026-06-13T01:00:05.000Z",
+    duration_seconds: 10,
+    transcript: "hello",
+    title: null,
+    tags: [],
+    audio_url: null,
+    audio_mime: null,
+    audio_bytes: null,
+  };
+
+  it("insertEntrySql carries page_label as $18", () => {
+    const q = insertEntrySql({ ...rec, pageLabel: "pp. 14–16" });
+    expect(q.text).toContain("page_label");
+    expect(q.values).toHaveLength(18);
+    expect(q.values[17]).toBe("pp. 14–16");
+  });
+
+  it("rowToEntry maps page_label, defaulting to null", () => {
+    expect(rowToEntry({ ...baseRow }).pageLabel).toBeNull();
+    expect(rowToEntry({ ...baseRow, page_label: "pp. 14–16" }).pageLabel).toBe("pp. 14–16");
+  });
+
+  it("listEntriesSql and searchEntriesSql select page_label", () => {
+    expect(listEntriesSql().text).toContain("page_label");
+    expect(searchEntriesSql().text).toContain("page_label");
   });
 });
 

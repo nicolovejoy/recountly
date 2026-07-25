@@ -45,6 +45,28 @@ describe("buildSaveBody", () => {
     expect("recordedAt" in body).toBe(false);
     expect("journalId" in body).toBe(false);
     expect("writtenAt" in body).toBe(false);
+    expect("pageLabel" in body).toBe(false);
+  });
+
+  it("carries pageLabel only when truthy", () => {
+    const withLabel = buildSaveBody({
+      id: "e4",
+      transcript: "hi",
+      durationSeconds: 1,
+      pageLabel: "pp. 14–16",
+      audio: null,
+      photos: [],
+    });
+    expect(withLabel.pageLabel).toBe("pp. 14–16");
+    const blank = buildSaveBody({
+      id: "e5",
+      transcript: "hi",
+      durationSeconds: 1,
+      pageLabel: "",
+      audio: null,
+      photos: [],
+    });
+    expect("pageLabel" in blank).toBe(false);
   });
 });
 
@@ -75,6 +97,30 @@ describe("parseSaveBody", () => {
     });
     expect(parsed.audio).toEqual(audio);
     expect(parsed.photos).toEqual([photo]);
+  });
+
+  it("reads pageLabel into the parsed input, ignoring a non-string", () => {
+    const withLabel = parseSaveBody({
+      id: "e1",
+      transcript: "hi",
+      durationSeconds: 1,
+      pageLabel: "pp. 14–16",
+      photos: [],
+    });
+    expect(withLabel.ok).toBe(true);
+    if (!withLabel.ok) return;
+    expect(withLabel.input.pageLabel).toBe("pp. 14–16");
+
+    const nonString = parseSaveBody({
+      id: "e1",
+      transcript: "hi",
+      durationSeconds: 1,
+      pageLabel: 42,
+      photos: [],
+    });
+    expect(nonString.ok).toBe(true);
+    if (!nonString.ok) return;
+    expect(nonString.input.pageLabel).toBeUndefined();
   });
 
   it("round-trips a transcript-only body (no audio, no photos)", () => {
