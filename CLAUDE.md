@@ -2,7 +2,32 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Project status: PWA (#48), iOS audio codec fixes (#49/#51), entry detail page (#39→PR #50), continuous capture (#38→PR #52) all shipped + phone-smoked 2026-07-19/20 — live on recountly.org, auth-gated. Capture/Library/Search tabs, journals, trash, FTS search, move + audit log, per-entry pages. 482 vitest tests. Design of record: `docs/organization-and-navigation.md` + plan `docs/superpowers/plans/2026-07-19-continuous-capture-entry-detail.md`.
+## Project status: #54 instant post-save nav SHIPPED (PR #55, merged 2026-07-25); page_label + sticky suggestion BUILT (PR #56, awaiting owner review — DB migration already applied). Live on recountly.org, auth-gated. Capture/Library/Search tabs, journals, trash, FTS search, move + audit log, per-entry pages. 524 vitest tests. Design of record: `docs/organization-and-navigation.md`.
+
+**Shipped 2026-07-25 (subagent plan/implement/review/fix cycles):** (1) **#54 (PR #55, merged)**:
+Done snapshots the transcript, durably writes a transcript-first IndexedDB pending record,
+then navigates to `/entry/<id>?saved=1` immediately; save continues in the detached `onStop`
+closure. EntryDetail polls (pure machine `src/lib/post-save-poll.ts`: 2s interval, 30s bound,
+~15s post-landing so enrichment pops in) behind a skeleton + cycling status line; amber notes
+(carrying the real upload error text — #46 contract) driven by the pending record. ⚠️ Review
+caught a real blocker: navigating at Done originally left the durable IDB write on the 1.5s
+flush timer of an unmounted component (the #23 Phase B transcript-loss path) — fixed by
+awaiting the put pre-nav. `retryPending` now KEEPS a record whose audio re-upload still fails
+(fresh `lastError`, not counted recovered) instead of silently discarding audio on a 201; no
+attempt cap yet (retries once per app open forever). (2) **page_label (PR #56, UNMERGED)**:
+nullable `entries.page_label` end-to-end ($18 insert param; upsert excludes it —
+first-write-wins like transcript), journal-gated "Pages" input, one tested `savedPageLabel`
+gate across all three save paths, sticky pre-fill via `?pageLabel=` on the New-recording link
++ `limit=1` fetch on journal switch (`suggestNextPageLabel` = raw passthrough, deliberately
+no increment parsing). Conscious choices: suggestion follows effective-date order; Unfiled
+never saves a label. Migration applied to recountly-db (idempotent).
+
+**Privacy discussion (2026-07-25, owner):** enrichment stays ON. Verified: Anthropic API
+standard retention ~7 days, structured outputs cache only the JSON schema (24h), no training;
+OpenAI API 30-day abuse window, Realtime audio transient. ZDR exists at both but is
+enterprise/sales-gated — not reachable for a solo API account. Decision: defaults are
+acceptable for this app; only in-our-hands knob is sending less (e.g. truncate the
+enrichment prompt) if ever wanted.
 
 Live transcription works end-to-end: speak and words appear via a direct browser→OpenAI
 WebRTC connection (mic meter + in-app error surfacing in place). The transcript is now an
@@ -277,16 +302,18 @@ tail merges on pause before the editor read; "listening" textarea affordance. Th
 **#54** instant post-save nav with cycling placeholder + honest failure notes.
 
 **Next Steps**:
-- **#54** post-save: navigate to detail immediately, cycling status placeholder, poll until
-  entry + enrichment land, amber notes on stuck uploads (design in the issue).
-- **#52 phone smoke** (continuous capture, now deployed): background mid-recording → reopen
-  → paused not saved; record resumes same entry; Done → one entry, full transcript.
+- **Review + merge PR #56** (page_label) — migration already applied; smoke on the preview
+  (check the header build stamp): activate journal → Pages input → label → Done → chip on
+  detail → New recording → pre-filled.
+- **Phone smokes now due**: #52 (continuous capture) AND #54 (instant post-save nav —
+  Done → placeholder cycles → entry renders → enrichment pops in; offline Done → amber note
+  → reopen recovers).
 - **#35** mother-site style pass + desktop top-nav; **Node 22 + pnpm 10 chore** (before
   passkeys; verify Vercel runtime too).
-- Then: capture polish (`page_label` + sticky) → **#36** search increments → **#33** covers
-  (+ thumb variant) → **#53** per-segment audio. Parked: sequential photo uploads +
-  photoless-entry 500, EXIF portrait, optimistic journal-switch, photo-fetch retry,
-  orphan-blob purge sweep, airplane-recovery smoke.
+- Then: **#36** search increments → **#33** covers (+ thumb variant) → **#53** per-segment
+  audio. Parked: audio-retry attempt cap (retryPending keeps failing-audio records forever),
+  sequential photo uploads + photoless-entry 500, EXIF portrait, optimistic journal-switch,
+  photo-fetch retry, orphan-blob purge sweep, airplane-recovery smoke.
 - **Passkeys (WebAuthn) primary + email/password as break-glass fallback** (NOT SMS — rejected as
   weakest 2FA; NOT Sign in with Apple — needs $99 dev program). Better Auth `passkey()` plugin:
   add to `src/lib/auth.ts` (`rpID: "recountly.org"` + localhost), `passkeyClient()` in
