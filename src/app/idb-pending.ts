@@ -55,4 +55,11 @@ export const idbPendingStore: PendingStore = {
   async delete(id: string): Promise<void> {
     await withStore("readwrite", (store) => store.delete(id));
   },
+  async has(id: string): Promise<boolean> {
+    const key = await withStore<IDBValidKey | undefined>("readonly", (store) => store.getKey(id));
+    return key !== undefined;
+  },
+  async get(id: string): Promise<PendingSave | undefined> {
+    return withStore<PendingSave | undefined>("readonly", (store) => store.get(id));
+  },
 };

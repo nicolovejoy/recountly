@@ -16,7 +16,7 @@
 // ?writtenAt= since (unlike the active journal, which is DB-backed) it's
 // local RecorderClient state that would otherwise reset.
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { pauseOthers } from "@/lib/audio-exclusive";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -24,6 +24,16 @@ import { formatElapsed } from "@/lib/elapsed";
 import type { EntryRecord } from "@/lib/entry";
 import type { PhotoRecord } from "@/lib/photo";
 import { writtenAtDateInput } from "@/lib/written-at";
+import {
+  initialPollState,
+  nextPollState,
+  placeholderStatusLine,
+  shouldPoll,
+  stuckNote,
+  POLL_INTERVAL_MS,
+  type PollState,
+} from "@/lib/post-save-poll";
+import { idbPendingStore } from "./idb-pending";
 import { useJournals } from "./useJournals";
 
 // Sentinel for the Move picker's "Unfiled" option — same idea as
@@ -39,20 +49,32 @@ export default function EntryDetail({ id }: { id: string }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const justSaved = searchParams.get("saved") === "1";
-  // The toast auto-clears; the "New recording" link stays as long as
-  // ?saved=1 is in the URL — the toast fading isn't a reason to hide it.
-  const [toastDismissed, setToastDismissed] = useState(false);
-  useEffect(() => {
-    if (!justSaved) return;
-    const t = setTimeout(() => setToastDismissed(true), 4000);
-    return () => clearTimeout(t);
-  }, [justSaved]);
 
-  // undefined = loading; null = 404 (unknown or trashed).
+  // undefined = still awaiting the row; null = confirmed absent (404 on a
+  // non-post-save visit); EntryRecord = loaded.
   const [entry, setEntry] = useState<EntryRecord | null | undefined>(undefined);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [photos, setPhotos] = useState<PhotoRecord[] | null>(null);
   const { journals } = useJournals();
+
+  // Issue #54: post-save polling. After Done, RecorderClient navigates here
+  // with ?saved=1 BEFORE the row exists — the save POST (and the after() -hook
+  // enrichment) land a beat later. We poll the entry route, driving the pure
+  // state machine (post-save-poll.ts): awaiting-entry → awaiting-enrichment →
+  // done (or timed-out). A skeleton placeholder with a cycling status line
+  // covers the awaiting-entry wait; enrichment (title/summary/tags) pops in
+  // once it lands. On a normal (non-post-save) visit the first fetch resolves
+  // straight to done — one request, today's behavior.
+  const [pollState, setPollState] = useState<PollState>(initialPollState);
+  const [elapsedMs, setElapsedMs] = useState(0);
+  // Whether a durable pending-save record still exists on this device (the #23
+  // net) — drives the honest amber note (stuckNote). Checked on mount and on
+  // every phase change (so a terminal phase re-reads the freshest truth).
+  const [pendingExists, setPendingExists] = useState(false);
+  // The real error text from that record's last failed blob upload (issue #46
+  // loud-error contract) — appended to the amber note so the diagnostic string
+  // reaches the phone rather than only the console. null when none.
+  const [pendingError, setPendingError] = useState<string | null>(null);
 
   const [trashing, setTrashing] = useState(false);
   const [trashError, setTrashError] = useState<string | null>(null);
@@ -60,24 +82,122 @@ export default function EntryDetail({ id }: { id: string }) {
   const [moving, setMoving] = useState(false);
   const [moveError, setMoveError] = useState<string | null>(null);
 
+  // A ref-backed mirror of pollState so the interval closure always advances
+  // from the current phase without re-subscribing on every transition.
+  const stateRef = useRef<PollState>(initialPollState());
   useEffect(() => {
     let alive = true;
-    fetch(`/api/entries/${id}`)
-      .then(async (res) => {
-        if (res.status === 404) return null;
+    const start = Date.now();
+    stateRef.current = initialPollState();
+    setPollState(stateRef.current);
+    setElapsedMs(0);
+    let timer: ReturnType<typeof setInterval> | null = null;
+    const stop = () => {
+      if (timer != null) {
+        clearInterval(timer);
+        timer = null;
+      }
+    };
+    const advance = (event: Parameters<typeof nextPollState>[1]): PollState => {
+      const ns = nextPollState(stateRef.current, event);
+      stateRef.current = ns;
+      setPollState(ns);
+      return ns;
+    };
+
+    const applyResult = (e: EntryRecord | null) => {
+      if (!alive) return;
+      // A 404 on a normal (non-post-save) visit is today's immediate answer:
+      // the entry is genuinely gone/trashed — don't sit on the placeholder.
+      if (e === null && !justSaved) {
+        setEntry(null);
+        stateRef.current = { ...stateRef.current, phase: "done" };
+        setPollState(stateRef.current);
+        stop();
+        return;
+      }
+      if (e) setEntry(e);
+      const after = advance({ type: "result", entry: e ? { enrichedAt: e.enrichedAt } : null });
+      if (!shouldPoll(after.phase)) stop();
+    };
+
+    const poll = async () => {
+      if (!alive) return;
+      const el = Date.now() - start;
+      setElapsedMs(el);
+      const afterTick = advance({ type: "tick", elapsedMs: el });
+      if (!shouldPoll(afterTick.phase)) {
+        stop();
+        return;
+      }
+      try {
+        const res = await fetch(`/api/entries/${id}`);
+        if (res.status === 404) {
+          applyResult(null);
+          return;
+        }
         if (!res.ok) throw new Error(`entry route ${res.status}`);
-        return ((await res.json()) as { entry: EntryRecord }).entry;
-      })
-      .then((e) => {
-        if (alive) setEntry(e);
-      })
-      .catch((err) => {
-        if (alive) setLoadError(err instanceof Error ? err.message : String(err));
-      });
+        applyResult(((await res.json()) as { entry: EntryRecord }).entry);
+      } catch (err) {
+        if (!alive) return;
+        setLoadError(err instanceof Error ? err.message : String(err));
+        // Finding 3: transient-error tolerance is ONLY for the just-saved path
+        // (the row may simply not exist yet). On a normal visit a non-404
+        // failure (e.g. a 500) is a real load error — surface it immediately
+        // and stop, rather than sitting on a blank screen for the whole poll
+        // window and ending in a misleading save-flavored timeout note.
+        if (!justSaved) {
+          stateRef.current = { ...stateRef.current, phase: "done" };
+          setPollState(stateRef.current);
+          stop();
+        }
+      }
+    };
+
+    void poll();
+    timer = setInterval(() => void poll(), POLL_INTERVAL_MS);
+    return () => {
+      alive = false;
+      stop();
+    };
+  }, [id, justSaved]);
+
+  // Pending-save record presence (issue #54) — checked on mount and whenever
+  // the phase changes, so a phase reaching a terminal state re-reads the truth
+  // (e.g. onStop may have just deleted a clean record). Reads the full record
+  // so `lastError` can join the amber note (#46).
+  //
+  // Finding 4 (false amber flash): at phase "done" the check can race onStop's
+  // delete-after-201, showing "Audio is still uploading" for a clean save until
+  // the enrichment budget expires. So at "done" we re-check ONCE after a poll
+  // interval, giving that delete time to land; other phases check immediately.
+  useEffect(() => {
+    if (typeof indexedDB === "undefined") return;
+    let alive = true;
+    const check = () => {
+      void idbPendingStore
+        .get(id)
+        .then((rec) => {
+          if (!alive) return;
+          setPendingExists(rec !== undefined);
+          setPendingError(rec?.lastError ?? null);
+        })
+        .catch(() => {
+          /* IndexedDB unavailable — treat as no pending record */
+        });
+    };
+    if (pollState.phase === "done") {
+      const t = setTimeout(check, POLL_INTERVAL_MS);
+      return () => {
+        alive = false;
+        clearTimeout(t);
+      };
+    }
+    check();
     return () => {
       alive = false;
     };
-  }, [id]);
+  }, [id, pollState.phase]);
 
   // Photos aren't on the GET /api/entries/[id] payload (unlike the list/
   // search routes' photoCount) — fetch once the entry itself has loaded.
@@ -147,16 +267,15 @@ export default function EntryDetail({ id }: { id: string }) {
   const writtenDateParam = entry?.writtenAt ? writtenAtDateInput(entry.writtenAt) : undefined;
   const newRecordingHref = writtenDateParam ? `/?writtenAt=${writtenDateParam}` : "/";
 
+  const polling = shouldPoll(pollState.phase);
+  // The honest amber banner: safe-and-retrying / couldn't-confirm / audio-still-
+  // uploading, or null when there's nothing to flag (see stuckNote).
+  const note = stuckNote({ phase: pollState.phase, pendingRecordExists: pendingExists });
+  // Skeleton placeholder only while a post-save row hasn't landed yet.
+  const showPlaceholder = entry === undefined && justSaved && polling;
+
   return (
     <section className="flex flex-col gap-4">
-      {justSaved && !toastDismissed && (
-        <div className="fixed inset-x-0 top-[calc(0.75rem+env(safe-area-inset-top))] z-50 flex justify-center px-4">
-          <p className="rounded-full border border-foreground/15 bg-background px-4 py-1.5 text-sm text-green-600 shadow-lg">
-            Saved ✓
-          </p>
-        </div>
-      )}
-
       <div className="flex items-center justify-between gap-3">
         <Link href="/library" className="text-xs text-foreground/40 hover:text-foreground/70">
           ← Library
@@ -171,7 +290,34 @@ export default function EntryDetail({ id }: { id: string }) {
         )}
       </div>
 
-      {loadError && (
+      {note && (
+        <p className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-sm text-amber-600">
+          {note.text}
+          {/* Finding 2 (#46): surface the real upload error so the diagnostic
+              string reaches the phone, not only the console. */}
+          {pendingError && <span className="mt-1 block text-xs opacity-70">({pendingError})</span>}
+        </p>
+      )}
+
+      {/* Post-save wait: skeleton + a cycling status line so the gap between
+          "Done" and the row landing reads as progress rather than a hang. */}
+      {showPlaceholder && (
+        <div className="flex flex-col gap-3">
+          <div className="h-6 w-2/3 animate-pulse rounded bg-foreground/10" />
+          <div className="flex flex-col gap-2">
+            <div className="h-4 w-full animate-pulse rounded bg-foreground/10" />
+            <div className="h-4 w-5/6 animate-pulse rounded bg-foreground/10" />
+            <div className="h-4 w-4/6 animate-pulse rounded bg-foreground/10" />
+          </div>
+          <p className="text-sm text-foreground/50" aria-live="polite">
+            {placeholderStatusLine(elapsedMs)}
+          </p>
+        </div>
+      )}
+
+      {/* A hard error only surfaces once polling has stopped without a row —
+          transient blips during the poll window are swallowed (see the loop). */}
+      {loadError && entry === undefined && !polling && !note && (
         <p className="text-sm text-red-500">Couldn’t load entry: {loadError}</p>
       )}
 
@@ -179,7 +325,7 @@ export default function EntryDetail({ id }: { id: string }) {
         <p className="text-sm text-foreground/40">No such entry.</p>
       )}
 
-      {entry === undefined && !loadError && (
+      {entry === undefined && !justSaved && polling && !loadError && (
         <p className="text-sm text-foreground/40">Loading…</p>
       )}
 

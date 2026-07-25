@@ -40,6 +40,12 @@ function fakeStore(initial: PendingSave[]): PendingStore & { remaining: () => Pe
     async delete(id) {
       map.delete(id);
     },
+    async has(id) {
+      return map.has(id);
+    },
+    async get(id) {
+      return map.get(id);
+    },
     remaining: () => [...map.values()],
   };
 }
@@ -204,5 +210,42 @@ describe("retryPending", () => {
     const store = fakeStore([]);
     const result = await retryPending(store, depsWith({}));
     expect(result).toEqual({ recovered: 0 });
+  });
+
+  it("keeps a record whose audio re-upload still fails, stamping lastError (issue #46)", async () => {
+    // The row saves (transcript safe) but the audio re-upload reports an
+    // audioError — deleting would silently discard the audio and flash a bogus
+    // "Recovered". Keep the record with the fresh error, don't count it.
+    const audio = { blob: new Blob(["x"]), mime: "audio/mp4", complete: true };
+    const store = fakeStore([makeRecord("01I", { audio })]);
+    const deps = depsWith({
+      uploadBlobs: async () => ({ audio: null, audioError: "TypeError: Failed to fetch", photos: [] }),
+      postSave: async () => ({ ok: true, status: 201 }),
+    });
+
+    const result = await retryPending(store, deps);
+
+    expect(result).toEqual({ recovered: 0 });
+    const remaining = store.remaining();
+    expect(remaining.map((r) => r.id)).toEqual(["01I"]);
+    expect(remaining[0].lastError).toBe("TypeError: Failed to fetch");
+  });
+
+  it("deletes and counts a record whose audio re-upload finally succeeds", async () => {
+    const audio = { blob: new Blob(["x"]), mime: "audio/mp4", complete: true };
+    const store = fakeStore([makeRecord("01J", { audio })]);
+    const deps = depsWith({
+      uploadBlobs: async () => ({
+        audio: { pathname: "audio/01J.mp4", mime: "audio/mp4", bytes: 1, complete: true },
+        audioError: null,
+        photos: [],
+      }),
+      postSave: async () => ({ ok: true, status: 201 }),
+    });
+
+    const result = await retryPending(store, deps);
+
+    expect(result).toEqual({ recovered: 1 });
+    expect(store.remaining()).toEqual([]);
   });
 });
