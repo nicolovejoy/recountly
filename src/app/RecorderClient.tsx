@@ -107,141 +107,220 @@ export default function RecorderClient() {
   // visibilitychange(hidden) commonly fire together for one hide episode.
   const flushFiredRef = useRef(false);
 
-  // Done's save trigger (issue #23 client-direct flow): mint the entry id +
-  // per-photo ids, upload the blobs STRAIGHT to Vercel Blob (audio best-effort,
-  // photos NOT — a photo throw aborts and keeps the tray), then POST a small
-  // JSON body of the refs. keepalive when the body fits the 64 KB cap so a
-  // backgrounded tab still lands the save. An empty transcript is a no-op.
-  const onStop = useCallback(
-    async (result: RecordingResult) => {
-      const transcript = editorRef.current?.getValue().trim() ?? "";
-      if (planSave(transcript).kind === "empty") {
-        setSaveError(
-          "Nothing to save — the transcript was empty when the session ended. Any attached photos are still here; record or dictate again and they'll be included.",
-        );
-        setSaveState("error");
-        return;
-      }
-      setSaveState("saving");
-      setSaveError(null);
+  // Issue #54: Done navigates to the detail page IMMEDIATELY, before the save
+  // pipeline runs — so the actual save (which fires from useRecorder's stop()
+  // flush ~FLUSH_MS later, by which point this component has unmounted) can no
+  // longer read the editor or live state. handleDone snapshots everything the
+  // save needs into this ref (which outlives the unmount via onStop's stable
+  // closure); onStop reads ONLY from here and touches no component state, so
+  // there's no setState-after-unmount. Cleared once onStop consumes it.
+  const finalSaveSnapshotRef = useRef<{
+    id: string;
+    transcript: string;
+    journalId: string | undefined;
+    writtenAt: string | undefined;
+    photos: { id: string; blob: Blob; mime: string }[];
+  } | null>(null);
 
-      const id = getEntryId();
-      const journalId = active?.id;
-      const photos = pendingPhotos.map((p) => ({ id: ulid(), blob: p.blob, mime: p.mime }));
-      const audio = result.audioBlob
-        ? {
-            blob: result.audioBlob,
-            mime: result.audioMime ?? "audio/webm",
-            complete: result.audioComplete ?? true,
-          }
-        : null;
+  // Done's save trigger (issue #23 client-direct flow, restructured for #54).
+  // This runs from useRecorder's stop() flush ~FLUSH_MS after Done — by which
+  // point handleDone has already navigated to the detail page and this
+  // component has unmounted. It therefore reads EVERYTHING from the
+  // handleDone-populated snapshot ref (never the editor or live state) and
+  // sets NO component state (no setState-after-unmount). Null snapshot = an
+  // empty-transcript Done that stayed on Capture; nothing to save.
+  //
+  // Upload the blobs STRAIGHT to Vercel Blob (audio best-effort, photos NOT),
+  // then POST a small JSON body of the refs (keepalive under the 64 KB cap).
+  // The durable IndexedDB record is deleted ONLY on a fully clean save (POST
+  // 201, no audioError) — an audio failure keeps it so the detail page can
+  // render the amber note (idbPendingStore.has) and PendingSaveRecovery can
+  // retry on next open. All feedback now lives on the detail page's poll loop.
+  const onStop = useCallback(async (result: RecordingResult) => {
+    const snapshot = finalSaveSnapshotRef.current;
+    if (!snapshot) return;
+    finalSaveSnapshotRef.current = null;
+    const { id, transcript, journalId, writtenAt, photos } = snapshot;
 
-      // Issue #23 Task 9: persist a durable snapshot to IndexedDB BEFORE
-      // starting uploads, so a crash/discard between now and the confirmed
-      // full-refs 201 below leaves a record PendingSaveRecovery can retry on
-      // next open. audio/photos fields are placeholders — retryPending fills
-      // them in from the re-uploaded refs; only the raw Blobs above matter.
-      // Best-effort: IndexedDB being unavailable must never block a save.
-      try {
-        await idbPendingStore.put({
-          id,
-          body: buildSaveBody({
-            id,
-            transcript,
-            durationSeconds: result.durationSeconds,
-            journalId,
-            writtenAt: writtenAtIso(writtenDate),
-            audio: null,
-            photos: [],
-          }),
-          audio,
-          photos,
-          createdAt: Date.now(),
-        });
-      } catch {
-        /* IndexedDB unavailable — proceed without the durability net */
-      }
-
-      let uploaded;
-      try {
-        uploaded = await uploadEntryBlobs({ entryId: id, audio, photos }, upload);
-      } catch (err) {
-        // Photos are not best-effort: keep the tray so the user can retry Done.
-        setSaveError(
-          `Photo upload failed — your photos are still attached; tap Done again. (${
-            err instanceof Error ? err.message : String(err)
-          })`,
-        );
-        setSaveState("error");
-        return;
-      }
-
-      const body = buildSaveBody({
-        id,
-        transcript,
-        durationSeconds: result.durationSeconds,
-        journalId: active?.id,
-        writtenAt: writtenAtIso(writtenDate),
-        audio: uploaded.audio,
-        photos: uploaded.photos,
-      });
-      const json = JSON.stringify(body);
-
-      try {
-        const res = await fetch("/api/entries", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: json,
-          keepalive: withinKeepaliveCap(json),
-        });
-        if (!res.ok) throw new Error(`save failed (${res.status}): ${await res.text()}`);
-        editorRef.current?.clear();
-        pendingPhotos.forEach((p) => URL.revokeObjectURL(p.previewUrl));
-        setPendingPhotos([]);
-        setWrittenDate("");
-        if (uploaded.audioError) {
-          // The entry landed (transcript safe) but its audio didn't. Surface
-          // the real error text — on the phone this toast is the only console.
-          // Stay on Capture (today's behavior) so the error toast is visible
-          // — no redirect on a save that wasn't fully clean.
-          console.error("audio upload failed:", uploaded.audioError);
-          setSaveError(`Saved, but the audio failed to upload: ${uploaded.audioError}`);
-          setSaveState("error");
-        } else {
-          // Issue #39: a fully clean save (transcript + audio + photos, no
-          // errors) hands off to the detail page, which shows its own
-          // "Saved ✓" toast via ?saved=1.
-          setSaveState("saved");
-          router.push(`/entry/${id}?saved=1`);
+    const audio = result.audioBlob
+      ? {
+          blob: result.audioBlob,
+          mime: result.audioMime ?? "audio/webm",
+          complete: result.audioComplete ?? true,
         }
-        // Fully landed — the next recording (or a retry after a later error)
-        // gets a fresh id / flush guard.
-        entryIdRef.current = null;
-        flushFiredRef.current = false;
-        // This is the confirmed FULL-REFS 201 (audio/photo refs included) —
-        // the only response that should clear the pending-save record. The
-        // Task 8 lifecycle-flush POST is transcript-only and never reaches
-        // here, so it can never delete a record that still needs its blobs
-        // attached. Best-effort cleanup — a failure just leaves the record
-        // for PendingSaveRecovery to clean up (harmlessly) on next open.
+      : null;
+
+    // Issue #23 Task 9: persist a durable snapshot to IndexedDB BEFORE
+    // starting uploads, so a crash/discard between now and the confirmed
+    // full-refs 201 below leaves a record PendingSaveRecovery can retry on
+    // next open. audio/photos in the body are placeholders — retryPending
+    // fills them from the re-uploaded refs; only the raw Blobs matter here.
+    // Best-effort: IndexedDB being unavailable must never block a save.
+    try {
+      await idbPendingStore.put({
+        id,
+        body: buildSaveBody({
+          id,
+          transcript,
+          durationSeconds: result.durationSeconds,
+          journalId,
+          writtenAt,
+          audio: null,
+          photos: [],
+        }),
+        audio,
+        photos,
+        createdAt: Date.now(),
+      });
+    } catch {
+      /* IndexedDB unavailable — proceed without the durability net */
+    }
+
+    let uploaded;
+    try {
+      uploaded = await uploadEntryBlobs({ entryId: id, audio, photos }, upload);
+    } catch (err) {
+      // Photos are not best-effort — a throw leaves the durable record in IDB
+      // for PendingSaveRecovery. We've already navigated away, so the only
+      // surface left is the console (and the detail page's timeout note).
+      console.error("entry blob upload failed:", err);
+      return;
+    }
+
+    const body = buildSaveBody({
+      id,
+      transcript,
+      durationSeconds: result.durationSeconds,
+      journalId,
+      writtenAt,
+      audio: uploaded.audio,
+      photos: uploaded.photos,
+    });
+    const json = JSON.stringify(body);
+
+    try {
+      const res = await fetch("/api/entries", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: json,
+        keepalive: withinKeepaliveCap(json),
+      });
+      if (!res.ok) throw new Error(`save failed (${res.status}): ${await res.text()}`);
+      if (uploaded.audioError) {
+        // The entry landed (transcript safe) but its audio didn't. Keep the
+        // durable record: the detail page reads idbPendingStore.get(id) and
+        // shows the amber "audio is still uploading" note, and
+        // PendingSaveRecovery retries the audio on next open. (#46: keep the
+        // console.error so the failure is still traceable.)
+        console.error("audio upload failed:", uploaded.audioError);
+        // Finding 2 (#46 loud-error): re-put the record with the REAL error
+        // text (the raw audio Blob is already stored from the pre-upload put
+        // above, so the retry can re-upload) — the detail page appends this to
+        // its amber note so the diagnostic string reaches the phone, not only
+        // the console. Best-effort.
+        try {
+          await idbPendingStore.put({
+            id,
+            body: buildSaveBody({
+              id,
+              transcript,
+              durationSeconds: result.durationSeconds,
+              journalId,
+              writtenAt,
+              audio: null,
+              photos: [],
+            }),
+            audio,
+            photos,
+            createdAt: Date.now(),
+            lastError: uploaded.audioError,
+          });
+        } catch {
+          /* best-effort — the pre-upload record still stands without lastError */
+        }
+      } else {
+        // Fully clean full-refs 201 (audio/photo refs included) — the only
+        // outcome that clears the durable record. Best-effort cleanup; a
+        // failure just leaves it for PendingSaveRecovery to clean up
+        // harmlessly on next open.
         try {
           await idbPendingStore.delete(id);
         } catch {
           /* best-effort cleanup */
         }
-      } catch (err) {
-        setSaveError(err instanceof Error ? err.message : String(err));
-        setSaveState("error");
       }
-    },
-    [active?.id, writtenDate, pendingPhotos, getEntryId, router],
-  );
+    } catch (err) {
+      // Save POST failed — keep the durable record for recovery. Nothing to
+      // show here (unmounted); the detail page's poll surfaces the honest note
+      // at timeout.
+      console.error("entry save POST failed:", err);
+    }
+  }, []);
 
   const { status, elapsedSec, interim, errorMsg, log, start, pause, resume, stop, forceFlush, meterRef } =
     useRecorder({
       onSegment: (segment) => editorRef.current?.append(segment),
       onStop,
     });
+
+  // Issue #54: Done ends the session, then navigates to the entry's detail
+  // page IMMEDIATELY — the placeholder + poll loop there shows save/enrichment
+  // progress instead of the old on-Capture "Saving…"→"Saved ✓" toast. stop()
+  // merges the interim tail into the editor synchronously (see useRecorder), so
+  // the transcript is complete the instant it returns; the real save runs later
+  // from onStop off the snapshot below. An empty transcript stays on Capture
+  // with the loud error toast (no navigation, no entry).
+  const handleDone = useCallback(async () => {
+    // Snapshot the duration before stop() zeroes elapsedSec (kept for the
+    // lifecycle flush, and harmless here).
+    pendingDurationRef.current = elapsedSec;
+    stop();
+    const transcript = editorRef.current?.getValue().trim() ?? "";
+    if (planSave(transcript).kind === "empty") {
+      setSaveError(
+        "Nothing to save — the transcript was empty when the session ended. Any attached photos are still here; record or dictate again and they'll be included.",
+      );
+      setSaveState("error");
+      return;
+    }
+    const id = getEntryId();
+    const journalId = active?.id;
+    const writtenAt = writtenAtIso(writtenDate);
+    const photos = pendingPhotos.map((p) => ({ id: ulid(), blob: p.blob, mime: p.mime }));
+    finalSaveSnapshotRef.current = { id, transcript, journalId, writtenAt, photos };
+    // Finding 1 (transcript loss): the real save runs from onStop ~FLUSH_MS
+    // later, but router.push below unmounts this component NOW — tearing down
+    // the pagehide/visibilitychange flush net. A PWA killed within that window
+    // would leave no durable record and lose the transcript (the #23 Phase B
+    // loss path). So synchronously persist a transcript-first pending record
+    // (audio absent — it isn't finalized yet; PendingSaveRecovery re-POSTs the
+    // transcript on next open) and await it before navigating. onStop re-puts
+    // the full record under the same id (idempotent). Best-effort: IndexedDB
+    // being unavailable must never block the save/nav.
+    try {
+      await idbPendingStore.put({
+        id,
+        body: buildSaveBody({
+          id,
+          transcript,
+          durationSeconds: pendingDurationRef.current,
+          journalId,
+          writtenAt,
+          audio: null,
+          photos: [],
+        }),
+        audio: null,
+        photos,
+        createdAt: Date.now(),
+      });
+    } catch {
+      /* IndexedDB unavailable — proceed without the pre-nav durability net */
+    }
+    // Navigating away: revoke the preview object URLs so they don't leak.
+    pendingPhotos.forEach((p) => URL.revokeObjectURL(p.previewUrl));
+    setPendingPhotos([]);
+    router.push(`/entry/${id}?saved=1`);
+  }, [elapsedSec, stop, getEntryId, active?.id, writtenDate, pendingPhotos, router]);
 
   // Issue #23 Task 8 / #38 continuous capture — lifecycle handling on
   // pagehide/visibilitychange-hidden, split by hideAction into two regimes:
@@ -470,14 +549,7 @@ export default function RecorderClient() {
         <RecStatusLine status={status} elapsedSec={elapsedSec} meterRef={meterRef} />
         {inSession && (
           <button
-            onClick={() => {
-              // Snapshot before stop() zeroes elapsedSec — the lifecycle
-              // flush (issue #23 Task 8) needs this if it fires during the
-              // finishing/saving window that follows.
-              pendingDurationRef.current = elapsedSec;
-              setSaveState("finishing");
-              stop();
-            }}
+            onClick={() => void handleDone()}
             className="rounded-full border border-foreground/20 px-4 py-1 text-sm text-foreground/70 transition-colors hover:bg-foreground/[0.06]"
           >
             Done

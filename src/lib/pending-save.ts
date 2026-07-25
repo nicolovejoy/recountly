@@ -22,6 +22,11 @@ export interface PendingSave {
   audio: { blob: Blob; mime: string; complete: boolean } | null;
   photos: { id: string; blob: Blob; mime: string }[];
   createdAt: number;
+  // The real error text from the last failed blob upload (issue #46 loud-error
+  // contract) — the diagnostic string the detail page appends to its amber note
+  // so a persistent audio-upload failure reaches the phone rather than only the
+  // console. Unset when nothing has failed.
+  lastError?: string;
 }
 
 // IndexedDB stores Blobs natively, so the whole record round-trips.
@@ -29,6 +34,13 @@ export interface PendingStore {
   put(rec: PendingSave): Promise<void>;
   getAll(): Promise<PendingSave[]>;
   delete(id: string): Promise<void>;
+  // Whether a pending record still exists for this id. Used by the post-save
+  // detail page (issue #54) to decide the honest amber note: a record present
+  // means the entry is safe on-device and will retry (see stuckNote).
+  has(id: string): Promise<boolean>;
+  // The full pending record for this id, or undefined if none — the detail page
+  // reads it to surface `lastError` alongside the amber note (issue #46).
+  get(id: string): Promise<PendingSave | undefined>;
 }
 
 export interface RetryDeps {
@@ -59,8 +71,17 @@ export async function retryPending(store: PendingStore, deps: RetryDeps): Promis
       const body: SaveRequestBody = { ...rec.body, audio: uploaded.audio, photos: uploaded.photos };
       const res = await deps.postSave(body);
       if (res.ok) {
-        await store.delete(rec.id);
-        recovered += 1;
+        // The row is durably saved. But if this record carried audio and the
+        // re-upload STILL failed (issue #46), deleting now would silently
+        // discard that audio and flash a bogus "Recovered". Keep the record —
+        // with the fresh error text — so the audio keeps retrying, and don't
+        // count it as recovered. Only a clean upload clears the record.
+        if (rec.audio && uploaded.audioError) {
+          await store.put({ ...rec, lastError: uploaded.audioError });
+        } else {
+          await store.delete(rec.id);
+          recovered += 1;
+        }
       } else if (res.status >= 400 && res.status < 500) {
         await store.delete(rec.id);
       }
