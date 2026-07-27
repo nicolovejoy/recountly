@@ -2,7 +2,34 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Project status: #54 instant post-save nav SHIPPED (PR #55, merged 2026-07-25); page_label + sticky suggestion BUILT (PR #56, awaiting owner review — DB migration already applied). Live on recountly.org, auth-gated. Capture/Library/Search tabs, journals, trash, FTS search, move + audit log, per-entry pages. 524 vitest tests. Design of record: `docs/organization-and-navigation.md`.
+## Project status: 2026-07-27 — page_label (PR #56), journal management (PR #57), entry metadata editing (PR #58) all MERGED + DB migrated. Live on recountly.org, auth-gated. Capture/Library/Search tabs, journals (rename/delete/dates/kind), trash, FTS over title+notes+location+transcript, move + audit log, per-entry pages with post-save metadata editing. 616 vitest tests. Design of record: `docs/organization-and-navigation.md`.
+
+**Shipped 2026-07-27 (one session, subagent plan/implement/review cycles):** PR #56 merged
+after a clean review (noted, parked: label-requires-journal is client-gated only; moves keep
+page labels; a URL-seeded label counts as "touched" across journal switches). Then, plans in
+`docs/superpowers/plans/2026-07-27-*.md`: (1) **Journal management (PR #57)**:
+`journals.started_on/ended_on/kind` (kind = `'archive'`|null — **Library grouping by kind
+DEFERRED pending discussion**, column + manage-panel select only), PATCH+DELETE
+`/api/journals/[id]` — delete **blocked 409 unless zero entries INCLUDING trashed** (message
+calls out the trashed-only case since the UI count hides trash; `entry_moves` refs nulled
+pre-delete, purge.ts idiom; racing FK violation → 409), manage panel in the JournalView
+header (label/kind/dates/notes/Delete), stored date range overrides computed
+(`resolveJournalDateRange` — fixed a real west-of-UTC day-shift by anchoring bare dates at
+local noon via the existing `writtenAtIso` idiom). (2) **Entry metadata (PR #58)**:
+`entries.notes` + `entries.location` (DB default `'home'` applies to NEW rows only — the
+insert deliberately doesn't list the column; existing rows stay null), post-save-only edits
+via a metadata branch on PATCH `/api/entries/[id]` (`{title|notes|location|writtenAt}`,
+`''`→null, mixed-with-journalId → 400), Edit mode on EntryDetail (hidden while the #54
+post-save poll is active), **enrichment can no longer clobber an edited title**
+(`title = coalesce(title, $n)`), FTS rebuilt to title+notes+location+transcript via a
+guarded idempotent DROP+re-ADD of the STORED tsv column. ⚠️ **Migrate runner fix that
+mattered:** `scripts/migrate.mjs` split schema.sql on bare `;`, which would have shredded
+the `DO $$` block — `scripts/sql-split.mjs` is now a dollar-quote-aware splitter (tested;
+known blind spots: `;`/`$$` inside plain single-quoted literals fail loudly at the DB, not
+silently). Both migrations applied to recountly-db and verified via introspect. Parked
+nits from reviews: useJournals shows generic "Save failed" (400 `problems` not surfaced);
+`updateEntryMetadataSql({})` has no guard (unreachable via route); PATCH body literal
+`null` → 500 (pre-existing).
 
 **Shipped 2026-07-25 (subagent plan/implement/review/fix cycles):** (1) **#54 (PR #55, merged)**:
 Done snapshots the transcript, durably writes a transcript-first IndexedDB pending record,
@@ -302,12 +329,15 @@ tail merges on pause before the editor read; "listening" textarea affordance. Th
 **#54** instant post-save nav with cycling placeholder + honest failure notes.
 
 **Next Steps**:
-- **Review + merge PR #56** (page_label) — migration already applied; smoke on the preview
-  (check the header build stamp): activate journal → Pages input → label → Done → chip on
-  detail → New recording → pre-filled.
-- **Phone smokes now due**: #52 (continuous capture) AND #54 (instant post-save nav —
+- **Phone smokes now due**: #52 (continuous capture); #54 (instant post-save nav —
   Done → placeholder cycles → entry renders → enrichment pops in; offline Done → amber note
-  → reopen recovers).
+  → reopen recovers); page_label (activate journal → Pages input → label → Done → chip on
+  detail → New recording → pre-filled); journal manage (rename/kind/dates, delete blocked
+  on non-empty incl. trash); entry Edit (title/notes/location/written date, new entry gets
+  location "home", search finds notes text).
+- **Discuss Library grouping/badging by journal `kind`** (column + manage-panel select
+  shipped in #57; grouping UI deliberately deferred). Related someday: journal archive
+  (hide-not-delete) state.
 - **#35** mother-site style pass + desktop top-nav; **Node 22 + pnpm 10 chore** (before
   passkeys; verify Vercel runtime too).
 - Then: **#36** search increments → **#33** covers (+ thumb variant) → **#53** per-segment
