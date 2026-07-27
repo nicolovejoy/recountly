@@ -195,3 +195,46 @@ describe("journal archive fields (Phase: physical journals)", () => {
     expect(errors).toContain("writtenAt must be a valid date");
   });
 });
+
+describe("page label (capture polish)", () => {
+  it("carries a trimmed pageLabel onto the record", () => {
+    const rec = buildEntryRecord(
+      { transcript: "hi", durationSeconds: 1, pageLabel: "  pp. 14–16  " },
+      { id: "01HX", audioUrl: null, now: new Date("2026-07-25T10:00:00Z") },
+    );
+    expect(rec.pageLabel).toBe("pp. 14–16");
+  });
+
+  it("defaults pageLabel to null when absent or blank", () => {
+    const absent = buildEntryRecord(
+      { transcript: "hi", durationSeconds: 1 },
+      { id: "01HX", audioUrl: null, now: new Date("2026-07-25T10:00:00Z") },
+    );
+    expect(absent.pageLabel).toBeNull();
+    const blank = buildEntryRecord(
+      { transcript: "hi", durationSeconds: 1, pageLabel: "   " },
+      { id: "01HX", audioUrl: null, now: new Date("2026-07-25T10:00:00Z") },
+    );
+    expect(blank.pageLabel).toBeNull();
+  });
+
+  it("accepts an absent, empty, or present pageLabel (no length cap)", () => {
+    expect(validateEntryInput({ transcript: "hi", durationSeconds: 1 })).toEqual([]);
+    expect(
+      validateEntryInput({ transcript: "hi", durationSeconds: 1, pageLabel: "" }),
+    ).toEqual([]);
+    expect(
+      validateEntryInput({ transcript: "hi", durationSeconds: 1, pageLabel: "pp. 14–16" }),
+    ).toEqual([]);
+  });
+
+  it("rejects a non-string pageLabel", () => {
+    const errors = validateEntryInput({
+      transcript: "hi",
+      durationSeconds: 1,
+      // @ts-expect-error — testing the runtime guard against a non-string
+      pageLabel: 42,
+    });
+    expect(errors).toContain("pageLabel must be a string");
+  });
+});

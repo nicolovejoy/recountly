@@ -23,6 +23,9 @@ export interface EntryInput {
   // distinct from recordedAt, which for a legacy page is when it was read aloud.
   journalId?: string;
   writtenAt?: string;
+  // Free-text page reference for a journal reading (e.g. "pp. 14–16"). No
+  // format enforced; trimmed to null when blank.
+  pageLabel?: string;
 }
 
 // LLM-generated enrichment (Phase 4 thread 1). Produced best-effort on save by
@@ -44,6 +47,8 @@ export interface EntryRecord {
   // When the page was written (vs recordedAt = when read aloud). Sorting and
   // date search use coalesce(written_at, recorded_at).
   writtenAt: string | null;
+  // Free-text page reference (e.g. "pp. 14–16"); null for a normal entry.
+  pageLabel: string | null;
   createdAt: string;
   updatedAt: string;
   durationSeconds: number;
@@ -101,6 +106,11 @@ export function validateEntryInput(input: EntryInput): string[] {
   if (input.writtenAt != null && Number.isNaN(Date.parse(input.writtenAt))) {
     errors.push("writtenAt must be a valid date");
   }
+  // Permissive: present-must-be-a-string, no length cap (mirrors journalId's
+  // shape guard). A blank pageLabel is fine — buildEntryRecord trims it to null.
+  if (input.pageLabel != null && typeof input.pageLabel !== "string") {
+    errors.push("pageLabel must be a string");
+  }
   return errors;
 }
 
@@ -126,6 +136,7 @@ export function buildEntryRecord(input: EntryInput, ctx: BuildContext): EntryRec
     recordedAt: input.recordedAt ?? nowIso,
     journalId: input.journalId ?? null,
     writtenAt: input.writtenAt ?? null,
+    pageLabel: input.pageLabel?.trim() || null,
     createdAt: nowIso,
     updatedAt: nowIso,
     durationSeconds: input.durationSeconds,

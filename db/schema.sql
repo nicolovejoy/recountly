@@ -66,6 +66,10 @@ CREATE TABLE IF NOT EXISTS journals (
 ALTER TABLE entries ADD COLUMN IF NOT EXISTS journal_id text REFERENCES journals(id);
 ALTER TABLE entries ADD COLUMN IF NOT EXISTS written_at timestamptz;
 
+-- Capture polish (page_label + sticky suggestion): a free-text page reference
+-- for a journal reading (e.g. "pp. 14–16"). Nullable; no format enforced.
+ALTER TABLE entries ADD COLUMN IF NOT EXISTS page_label text;
+
 -- Soft-delete (trash): null = live; a trashed entry keeps its row + audio/photo
 -- blobs for recovery — deleting hides it everywhere but destroys nothing.
 ALTER TABLE entries ADD COLUMN IF NOT EXISTS deleted_at timestamptz;

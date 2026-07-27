@@ -264,8 +264,17 @@ export default function EntryDetail({ id }: { id: string }) {
 
   const journalLabel =
     entry?.journalId ? (journals?.find((j) => j.id === entry.journalId)?.label ?? "journal") : null;
+  // "New recording" carries the written date AND page label forward (both are
+  // local Capture state that would otherwise reset — unlike the DB-backed
+  // active journal). Built via URLSearchParams so a page label with spaces/
+  // dashes is encoded correctly; the writtenAt-only and empty cases stay
+  // byte-identical to before.
   const writtenDateParam = entry?.writtenAt ? writtenAtDateInput(entry.writtenAt) : undefined;
-  const newRecordingHref = writtenDateParam ? `/?writtenAt=${writtenDateParam}` : "/";
+  const newRecordingParams = new URLSearchParams();
+  if (writtenDateParam) newRecordingParams.set("writtenAt", writtenDateParam);
+  if (entry?.pageLabel) newRecordingParams.set("pageLabel", entry.pageLabel);
+  const newRecordingQuery = newRecordingParams.toString();
+  const newRecordingHref = newRecordingQuery ? `/?${newRecordingQuery}` : "/";
 
   const polling = shouldPoll(pollState.phase);
   // The honest amber banner: safe-and-retrying / couldn't-confirm / audio-still-
@@ -338,11 +347,16 @@ export default function EntryDetail({ id }: { id: string }) {
             {entry.title && (
               <span className="text-xs text-foreground/40">{formatWhen(entry.recordedAt)}</span>
             )}
-            {(journalLabel || entry.writtenAt) && (
+            {(journalLabel || entry.writtenAt || entry.pageLabel) && (
               <div className="flex flex-wrap items-center gap-2 text-xs text-foreground/40">
                 {journalLabel && (
                   <span className="rounded-full border border-foreground/10 px-2 py-0.5">
                     📓 {journalLabel}
+                  </span>
+                )}
+                {entry.pageLabel && (
+                  <span className="rounded-full border border-foreground/10 px-2 py-0.5">
+                    {entry.pageLabel}
                   </span>
                 )}
                 {entry.writtenAt && (
