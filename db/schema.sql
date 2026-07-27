@@ -103,3 +103,11 @@ CREATE TABLE IF NOT EXISTS entry_moves (
   moved_at        timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS entry_moves_entry_id ON entry_moves (entry_id);
+
+-- Journal management (PR A, 2026-07-27): an owner-set date range that
+-- overrides the computed-from-entries range where set (started_on/ended_on),
+-- and a kind to eventually distinguish archived paper journals from live
+-- capture (grouping/badging by kind is deferred — column only, for now).
+ALTER TABLE journals ADD COLUMN IF NOT EXISTS started_on date;
+ALTER TABLE journals ADD COLUMN IF NOT EXISTS ended_on date;
+ALTER TABLE journals ADD COLUMN IF NOT EXISTS kind text;

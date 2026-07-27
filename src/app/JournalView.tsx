@@ -13,13 +13,21 @@
 // Select mode (issue #40 — same SelectionBar/useBulkSelection as UnfiledView):
 // bulk Move (PATCH, excludes this journal from the target list — a no-op)
 // and bulk Trash (DELETE, one confirm for the whole batch).
+//
+// Manage panel (PR A, 2026-07-27): rename/edit dates+kind and delete. The
+// summaries fetch already carries notes/startedOn/endedOn/kind (journal.ts),
+// so opening the panel needs no extra request — it just seeds the form from
+// `summary`. Delete is blocked unless the journal is empty; the client-side
+// disable uses the LIVE entry count (all the UI can see), but the real guard
+// is the route's 409 with total/trashed counts, surfaced verbatim on failure.
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import type { EntryRecord } from "@/lib/entry";
-import type { JournalSummary } from "@/lib/journal";
+import type { JournalSummary, JournalUpdate } from "@/lib/journal";
 import { buildSearchQueryString } from "@/lib/search";
-import { formatEntryDateRange } from "@/lib/date-range";
+import { resolveJournalDateRange } from "@/lib/date-range";
 import EntryCard from "./EntryCard";
 import SelectionBar, { UNFILED_VALUE } from "./SelectionBar";
 import SelectModeToggle from "./SelectModeToggle";
@@ -28,19 +36,56 @@ import { useJournals } from "./useJournals";
 
 type SortOption = "newest" | "reading";
 
+interface ManageForm {
+  label: string;
+  notes: string;
+  kind: "" | "archive";
+  startedOn: string;
+  endedOn: string;
+}
+
+function toManageForm(s: JournalSummary): ManageForm {
+  return {
+    label: s.label,
+    notes: s.notes ?? "",
+    kind: s.kind === "archive" ? "archive" : "",
+    startedOn: s.startedOn ?? "",
+    endedOn: s.endedOn ?? "",
+  };
+}
+
 export default function JournalView({ journalId }: { journalId: string }) {
   // undefined = loading; null = no such journal.
   const [summary, setSummary] = useState<JournalSummary | null | undefined>(undefined);
   const [entries, setEntries] = useState<EntryRecord[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [sort, setSort] = useState<SortOption>("newest");
-  const { journals } = useJournals(); // options for each card's Move picker
+  const router = useRouter();
+  const { journals, update, remove } = useJournals(); // options for each card's Move picker
 
   const bulk = useBulkSelection();
+
+  const [managing, setManaging] = useState(false);
+  const [form, setForm] = useState<ManageForm | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   // Generation counter (same idiom as useJournals) so a manual reload()
   // triggered by a bulk action can't be clobbered by a stale in-flight
   // response from the sort-change effect landing after it, or vice versa.
   const genRef = useRef(0);
+
+  // History navigation can land on another journal without unmounting this
+  // component — an open manage panel would carry the previous journal's form.
+  const [panelJournalId, setPanelJournalId] = useState(journalId);
+  if (panelJournalId !== journalId) {
+    setPanelJournalId(journalId);
+    setManaging(false);
+    setForm(null);
+    setSaveError(null);
+    setDeleteError(null);
+  }
 
   useEffect(() => {
     let alive = true;
@@ -121,7 +166,67 @@ export default function JournalView({ journalId }: { journalId: string }) {
     reload();
   }
 
-  const range = summary ? formatEntryDateRange(summary.firstEntryAt, summary.lastEntryAt) : null;
+  function toggleManage() {
+    if (managing) {
+      setManaging(false);
+      setForm(null);
+      return;
+    }
+    if (!summary) return;
+    setManaging(true);
+    setForm(toManageForm(summary));
+    setSaveError(null);
+    setDeleteError(null);
+  }
+
+  async function handleSave() {
+    if (!form) return;
+    setSaving(true);
+    setSaveError(null);
+    const patch: JournalUpdate = {
+      label: form.label,
+      notes: form.notes.trim() === "" ? null : form.notes,
+      kind: form.kind === "archive" ? "archive" : null,
+      startedOn: form.startedOn === "" ? null : form.startedOn,
+      endedOn: form.endedOn === "" ? null : form.endedOn,
+    };
+    const updated = await update(journalId, patch);
+    setSaving(false);
+    if (!updated) {
+      setSaveError("Save failed");
+      return;
+    }
+    setManaging(false);
+    setForm(null);
+    // Merge the fields update() can change into the local summary snapshot —
+    // updated (a JournalRecord) has no entryCount/firstEntryAt/lastEntryAt,
+    // so this only overwrites label/notes/kind/startedOn/endedOn/active.
+    setSummary((prev) => (prev ? { ...prev, ...updated } : prev));
+  }
+
+  async function handleDelete() {
+    if (!summary) return;
+    if (
+      !window.confirm(
+        `Delete “${summary.label}”? This can’t be undone. (Blocked while any entries — live or trashed — still reference it.)`,
+      )
+    ) {
+      return;
+    }
+    setDeleting(true);
+    setDeleteError(null);
+    const result = await remove(journalId);
+    setDeleting(false);
+    if (!result.ok) {
+      setDeleteError(result.error ?? "Delete failed");
+      return;
+    }
+    router.push("/library");
+  }
+
+  const range = summary
+    ? resolveJournalDateRange(summary.startedOn, summary.endedOn, summary.firstEntryAt, summary.lastEntryAt)
+    : null;
   // Live count: the summaries snapshot goes stale when onTrashed removes a row
   // locally, so prefer the loaded entries list; fall back while still loading.
   const entryCount = entries ? entries.length : summary?.entryCount;
@@ -145,17 +250,29 @@ export default function JournalView({ journalId }: { journalId: string }) {
         <div className="flex flex-col gap-1">
           <div className="flex items-start justify-between gap-3">
             <h2 className="text-sm font-medium text-foreground/90">{summary.label}</h2>
-            {entries && entries.length > 0 && (
-              <SelectModeToggle
-                selectMode={bulk.selectMode}
-                allSelected={allSelected}
-                busy={bulk.busy}
-                onEnter={bulk.enterSelectMode}
-                onExit={bulk.exitSelectMode}
-                onSelectAll={() => bulk.selectAllIds(entries.map((e) => e.id))}
-                onClear={bulk.clearSelection}
-              />
-            )}
+            <div className="flex shrink-0 items-center gap-3">
+              {!bulk.selectMode && (
+                <button
+                  type="button"
+                  onClick={toggleManage}
+                  aria-label={managing ? "Close journal settings" : "Manage journal"}
+                  className="text-xs text-foreground/40 hover:text-foreground/70"
+                >
+                  {managing ? "✕" : "✏️"}
+                </button>
+              )}
+              {entries && entries.length > 0 && (
+                <SelectModeToggle
+                  selectMode={bulk.selectMode}
+                  allSelected={allSelected}
+                  busy={bulk.busy}
+                  onEnter={bulk.enterSelectMode}
+                  onExit={bulk.exitSelectMode}
+                  onSelectAll={() => bulk.selectAllIds(entries.map((e) => e.id))}
+                  onClear={bulk.clearSelection}
+                />
+              )}
+            </div>
           </div>
           <div className="flex items-center justify-between gap-2">
             <p className="text-xs text-foreground/50">
@@ -175,6 +292,96 @@ export default function JournalView({ journalId }: { journalId: string }) {
               </select>
             </label>
           </div>
+        </div>
+      )}
+
+      {managing && form && (
+        <div className="flex flex-col gap-2 rounded-xl border border-foreground/10 p-3">
+          <label className="flex flex-col gap-1 text-xs text-foreground/50">
+            <span>Label</span>
+            <input
+              type="text"
+              value={form.label}
+              onChange={(e) => setForm({ ...form, label: e.target.value })}
+              className="rounded-lg border border-foreground/15 bg-transparent px-2 py-1 text-sm text-foreground/90 outline-none focus:border-foreground/40"
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-xs text-foreground/50">
+            <span>Kind</span>
+            <select
+              value={form.kind}
+              onChange={(e) => setForm({ ...form, kind: e.target.value as "" | "archive" })}
+              className="rounded-lg border border-foreground/15 bg-transparent px-2 py-1 text-sm text-foreground/90 outline-none focus:border-foreground/40"
+            >
+              <option value="">—</option>
+              <option value="archive">Archive</option>
+            </select>
+          </label>
+          <div className="flex gap-2">
+            <label className="flex flex-1 flex-col gap-1 text-xs text-foreground/50">
+              <span>Started</span>
+              <input
+                type="date"
+                value={form.startedOn}
+                onChange={(e) => setForm({ ...form, startedOn: e.target.value })}
+                className="rounded-lg border border-foreground/15 bg-transparent px-2 py-1 text-sm text-foreground/90 outline-none focus:border-foreground/40"
+              />
+            </label>
+            <label className="flex flex-1 flex-col gap-1 text-xs text-foreground/50">
+              <span>Ended</span>
+              <input
+                type="date"
+                value={form.endedOn}
+                onChange={(e) => setForm({ ...form, endedOn: e.target.value })}
+                className="rounded-lg border border-foreground/15 bg-transparent px-2 py-1 text-sm text-foreground/90 outline-none focus:border-foreground/40"
+              />
+            </label>
+          </div>
+          <label className="flex flex-col gap-1 text-xs text-foreground/50">
+            <span>Notes</span>
+            <textarea
+              value={form.notes}
+              onChange={(e) => setForm({ ...form, notes: e.target.value })}
+              rows={2}
+              className="rounded-lg border border-foreground/15 bg-transparent px-2 py-1 text-sm text-foreground/90 outline-none focus:border-foreground/40"
+            />
+          </label>
+          {saveError && <p className="text-sm text-red-500">Couldn’t save: {saveError}</p>}
+
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleSave}
+                disabled={saving}
+                className="rounded-lg bg-foreground/90 px-3 py-1.5 text-xs font-medium text-background disabled:opacity-50"
+              >
+                {saving ? "Saving…" : "Save"}
+              </button>
+              <button
+                type="button"
+                onClick={toggleManage}
+                disabled={saving}
+                className="text-xs text-foreground/40 hover:text-foreground/70 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+            </div>
+            <button
+              type="button"
+              onClick={handleDelete}
+              disabled={deleting || (entryCount ?? 0) > 0}
+              className="text-xs text-foreground/40 hover:text-red-500 disabled:opacity-50"
+            >
+              {deleting ? "Deleting…" : "Delete journal"}
+            </button>
+          </div>
+          {(entryCount ?? 0) > 0 && (
+            <p className="text-xs text-foreground/40">
+              {entryCount} {entryCount === 1 ? "entry" : "entries"} — empty this journal first.
+            </p>
+          )}
+          {deleteError && <p className="text-sm text-red-500">{deleteError}</p>}
         </div>
       )}
 

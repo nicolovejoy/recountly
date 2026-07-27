@@ -13,6 +13,9 @@ import {
   insertJournal,
   listJournals,
   getJournal,
+  updateJournal,
+  countJournalEntries,
+  deleteJournal,
   setActiveJournal,
   listJournalSummaries,
   countUnfiledEntries,
@@ -254,6 +257,30 @@ describe("journal data access", () => {
     notes: null,
     active: false,
     createdAt: "2026-07-16T10:00:00.000Z",
+    startedOn: null,
+    endedOn: null,
+    kind: null,
+  };
+
+  const journalRow = {
+    id: "01JRNL",
+    label: "Red",
+    notes: null,
+    active: true,
+    created_at: "2026-07-16T10:00:00.000Z",
+    started_on: null,
+    ended_on: null,
+    kind: null,
+  };
+  const journalRecord: JournalRecord = {
+    id: "01JRNL",
+    label: "Red",
+    notes: null,
+    active: true,
+    createdAt: "2026-07-16T10:00:00.000Z",
+    startedOn: null,
+    endedOn: null,
+    kind: null,
   };
 
   it("insertJournal runs the parameterized INSERT", async () => {
@@ -264,13 +291,9 @@ describe("journal data access", () => {
   });
 
   it("listJournals maps rows to JournalRecords", async () => {
-    const { runner } = fakeRunner([
-      { id: "01JRNL", label: "Red", notes: null, active: true, created_at: "2026-07-16T10:00:00.000Z" },
-    ]);
+    const { runner } = fakeRunner([journalRow]);
     const out = await listJournals(runner);
-    expect(out).toEqual([
-      { id: "01JRNL", label: "Red", notes: null, active: true, createdAt: "2026-07-16T10:00:00.000Z" },
-    ]);
+    expect(out).toEqual([journalRecord]);
   });
 
   it("setActiveJournal runs the single-statement toggle and returns true when the id matched", async () => {
@@ -291,21 +314,55 @@ describe("journal data access", () => {
   });
 
   it("getJournal returns a mapped journal when a row exists", async () => {
-    const { runner } = fakeRunner([
-      { id: "01JRNL", label: "Red", notes: null, active: true, created_at: "2026-07-16T10:00:00.000Z" },
-    ]);
-    expect(await getJournal("01JRNL", runner)).toEqual({
-      id: "01JRNL",
-      label: "Red",
-      notes: null,
-      active: true,
-      createdAt: "2026-07-16T10:00:00.000Z",
-    });
+    const { runner } = fakeRunner([journalRow]);
+    expect(await getJournal("01JRNL", runner)).toEqual(journalRecord);
   });
 
   it("getJournal returns null when no row matches", async () => {
     const { runner } = fakeRunner([]);
     expect(await getJournal("nope", runner)).toBeNull();
+  });
+
+  it("updateJournal runs the dynamic SET and returns the updated record", async () => {
+    const { runner, calls } = fakeRunner([{ ...journalRow, label: "Renamed" }]);
+    const out = await updateJournal("01JRNL", { label: "Renamed" }, runner);
+    expect(calls[0].text).toContain("UPDATE journals SET label = $2");
+    expect(calls[0].values).toEqual(["01JRNL", "Renamed"]);
+    expect(out).toEqual({ ...journalRecord, label: "Renamed" });
+  });
+
+  it("updateJournal returns null when no row matches the id", async () => {
+    const { runner } = fakeRunner([]);
+    expect(await updateJournal("nope", { label: "X" }, runner)).toBeNull();
+  });
+
+  it("countJournalEntries returns total + trashed as numbers", async () => {
+    const { runner, calls } = fakeRunner([{ total: "3", trashed: "1" }]);
+    const out = await countJournalEntries("01JRNL", runner);
+    expect(calls[0].text).toContain("FROM entries WHERE journal_id = $1");
+    expect(calls[0].values).toEqual(["01JRNL"]);
+    expect(out).toEqual({ total: 3, trashed: 1 });
+  });
+
+  it("countJournalEntries returns zeros when nothing references the journal", async () => {
+    const { runner } = fakeRunner([{ total: 0, trashed: 0 }]);
+    expect(await countJournalEntries("01JRNL", runner)).toEqual({ total: 0, trashed: 0 });
+  });
+
+  it("deleteJournal clears entry_moves references before deleting the row, in that order", async () => {
+    const { runner, calls } = fakeRunner([{ id: "01JRNL" }]);
+    const ok = await deleteJournal("01JRNL", runner);
+    expect(calls).toHaveLength(2);
+    expect(calls[0].text).toContain("UPDATE entry_moves SET");
+    expect(calls[0].values).toEqual(["01JRNL"]);
+    expect(calls[1].text).toBe("DELETE FROM journals WHERE id = $1 RETURNING id");
+    expect(calls[1].values).toEqual(["01JRNL"]);
+    expect(ok).toBe(true);
+  });
+
+  it("deleteJournal returns false when no row matched the id", async () => {
+    const { runner } = fakeRunner([]);
+    expect(await deleteJournal("nope", runner)).toBe(false);
   });
 });
 
@@ -315,8 +372,12 @@ describe("journal summaries data access (issue #29)", () => {
       {
         id: "01JRNL",
         label: "Red notebook 1994",
+        notes: null,
         active: true,
         created_at: "2026-07-16T10:00:00.000Z",
+        started_on: null,
+        ended_on: null,
+        kind: null,
         entry_count: 2,
         first_at: "1994-03-02T00:00:00.000Z",
         last_at: "1995-06-01T00:00:00.000Z",
@@ -331,8 +392,12 @@ describe("journal summaries data access (issue #29)", () => {
       {
         id: "01JRNL",
         label: "Red notebook 1994",
+        notes: null,
         active: true,
         createdAt: "2026-07-16T10:00:00.000Z",
+        startedOn: null,
+        endedOn: null,
+        kind: null,
         entryCount: 2,
         firstEntryAt: "1994-03-02T00:00:00.000Z",
         lastEntryAt: "1995-06-01T00:00:00.000Z",

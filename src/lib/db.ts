@@ -26,12 +26,17 @@ import {
   insertJournalSql,
   listJournalsSql,
   getJournalSql,
+  updateJournalSql,
+  countJournalEntriesSql,
+  clearJournalMoveRefsSql,
+  deleteJournalSql,
   setActiveJournalSql,
   journalSummariesSql,
   unfiledCountSql,
   rowToJournal,
   rowToJournalSummary,
   type JournalRecord,
+  type JournalUpdate,
   type JournalSummary,
 } from "./journal";
 import {
@@ -218,6 +223,51 @@ export async function getJournal(
   const { text, values } = getJournalSql(id);
   const rows = await runner.query(text, values);
   return rows.length ? rowToJournal(rows[0]) : null;
+}
+
+// Journal management (PR A): partial update, RETURNING the full row. Null
+// return means no row matched the id (the route turns that into a 404).
+export async function updateJournal(
+  id: string,
+  patch: JournalUpdate,
+  runner: QueryRunner = defaultRunner(),
+): Promise<JournalRecord | null> {
+  const { text, values } = updateJournalSql(id, patch);
+  const rows = await runner.query(text, values);
+  return rows.length ? rowToJournal(rows[0]) : null;
+}
+
+export interface JournalEntryCounts {
+  total: number;
+  trashed: number;
+}
+
+// How many entries (live + trashed) still reference this journal — the
+// delete-blocked-unless-empty check. Doesn't distinguish "unknown journal"
+// from "empty journal" (both count 0); the route's getJournal 404-check
+// handles that.
+export async function countJournalEntries(
+  id: string,
+  runner: QueryRunner = defaultRunner(),
+): Promise<JournalEntryCounts> {
+  const { text, values } = countJournalEntriesSql(id);
+  const rows = await runner.query(text, values);
+  return { total: Number(rows[0]?.total ?? 0), trashed: Number(rows[0]?.trashed ?? 0) };
+}
+
+// Journal delete: clears entry_moves references first (no ON DELETE on those
+// FKs — same manual-cleanup idiom as purge.ts), then deletes the row. Order
+// matters — a delete-then-clear would FK-violate. Returns whether a row was
+// actually deleted (false = unknown id).
+export async function deleteJournal(
+  id: string,
+  runner: QueryRunner = defaultRunner(),
+): Promise<boolean> {
+  const clear = clearJournalMoveRefsSql(id);
+  await runner.query(clear.text, clear.values);
+  const del = deleteJournalSql(id);
+  const rows = await runner.query(del.text, del.values);
+  return rows.length > 0;
 }
 
 // Returns whether the activation actually matched a journal (true always for

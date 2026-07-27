@@ -7,7 +7,16 @@
 // hook owns the fetches; components stay presentational.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { JournalRecord } from "@/lib/journal";
+import type { JournalRecord, JournalUpdate } from "@/lib/journal";
+
+// DELETE /api/journals/[id]'s 409 body (PR A): delete is blocked unless the
+// journal is empty (live + trashed entries both count against it).
+export interface JournalDeleteResult {
+  ok: boolean;
+  error?: string;
+  entryCount?: number;
+  trashedCount?: number;
+}
 
 export function useJournals() {
   const [journals, setJournals] = useState<JournalRecord[] | null>(null);
@@ -76,6 +85,51 @@ export function useJournals() {
     [reload],
   );
 
+  // Journal management (PR A): rename/edit + delete. Both refresh the list on
+  // success (same idiom as create/setActive) so the Move picker's target list
+  // and other consumers of this hook pick up the change immediately.
+  const update = useCallback(
+    async (id: string, patch: JournalUpdate): Promise<JournalRecord | null> => {
+      try {
+        const res = await fetch(`/api/journals/${id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(patch),
+        });
+        if (!res.ok) throw new Error(`update failed (${res.status})`);
+        const { journal } = (await res.json()) as { journal: JournalRecord };
+        reload();
+        return journal;
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+        return null;
+      }
+    },
+    [reload],
+  );
+
+  const remove = useCallback(
+    async (id: string): Promise<JournalDeleteResult> => {
+      try {
+        const res = await fetch(`/api/journals/${id}`, { method: "DELETE" });
+        const body = await res.json().catch(() => ({}) as Record<string, unknown>);
+        if (!res.ok) {
+          return {
+            ok: false,
+            error: typeof body.error === "string" ? body.error : `delete failed (${res.status})`,
+            entryCount: typeof body.entryCount === "number" ? body.entryCount : undefined,
+            trashedCount: typeof body.trashedCount === "number" ? body.trashedCount : undefined,
+          };
+        }
+        reload();
+        return { ok: true };
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    [reload],
+  );
+
   const active = journals?.find((j) => j.active) ?? null;
-  return { journals, active, error, create, setActive };
+  return { journals, active, error, create, setActive, update, remove };
 }

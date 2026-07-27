@@ -10,7 +10,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import type { JournalSummary } from "@/lib/journal";
-import { formatEntryDateRange } from "@/lib/date-range";
+import { resolveJournalDateRange } from "@/lib/date-range";
 
 interface Summaries {
   journals: JournalSummary[];
@@ -58,7 +58,12 @@ export default function LibraryView() {
 
       <ul className="flex flex-col gap-3">
         {data?.journals.map((j) => {
-          const range = formatEntryDateRange(j.firstEntryAt, j.lastEntryAt);
+          const range = resolveJournalDateRange(
+            j.startedOn,
+            j.endedOn,
+            j.firstEntryAt,
+            j.lastEntryAt,
+          );
           return (
             <li key={j.id}>
               <Link
