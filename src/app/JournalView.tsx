@@ -76,6 +76,17 @@ export default function JournalView({ journalId }: { journalId: string }) {
   // response from the sort-change effect landing after it, or vice versa.
   const genRef = useRef(0);
 
+  // History navigation can land on another journal without unmounting this
+  // component — an open manage panel would carry the previous journal's form.
+  const [panelJournalId, setPanelJournalId] = useState(journalId);
+  if (panelJournalId !== journalId) {
+    setPanelJournalId(journalId);
+    setManaging(false);
+    setForm(null);
+    setSaveError(null);
+    setDeleteError(null);
+  }
+
   useEffect(() => {
     let alive = true;
     fetch("/api/journals/summaries")
