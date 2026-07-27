@@ -78,6 +78,104 @@ export interface EntryRecord {
   // getEntrySql/listTrashedSql that are actually trashed; undefined on live
   // rows and pre-insert records.
   deletedAt?: string;
+  // Entry metadata editing (PR B): free-text notes and a location, both
+  // post-save-editable only (never set by buildEntryRecord/insertEntrySql —
+  // location's DB default supplies 'home' for new rows, notes has none).
+  // Optional (not just nullable) because a freshly-built pre-insert record
+  // never carries them; every row actually read back from the DB does
+  // (rowToEntry always maps them to a string or null, never leaves them out).
+  notes?: string | null;
+  location?: string | null;
+}
+
+// Partial post-save edit to an existing entry (PR B) — title/notes/location/
+// writtenAt, each independently settable to a value or null (clearing).
+// Distinct from EntryInput: these fields are never part of capture/save.
+export interface EntryMetadataPatch {
+  title?: string | null;
+  notes?: string | null;
+  location?: string | null;
+  writtenAt?: string | null;
+}
+
+const METADATA_KEYS = ["title", "notes", "location", "writtenAt"] as const;
+
+// Length caps: title is a headline (card/detail heading), location a short
+// tag, notes free-running prose — generous but bounded so a single edit can't
+// blow past reasonable row/index sizes.
+const TITLE_MAX = 300;
+const LOCATION_MAX = 200;
+const NOTES_MAX = 20_000;
+
+// Trims a present text field and turns "" into null (clearing); a value over
+// the cap or of the wrong type pushes a problem and returns undefined (the
+// caller skips writing it to the patch). null passes through as a clear.
+function normalizeTextField(
+  raw: unknown,
+  field: string,
+  maxLen: number,
+  problems: string[],
+): string | null | undefined {
+  if (raw === null) return null;
+  if (typeof raw !== "string") {
+    problems.push(`${field} must be a string or null`);
+    return undefined;
+  }
+  const trimmed = raw.trim();
+  if (trimmed.length > maxLen) {
+    problems.push(`${field} must be ${maxLen} characters or fewer`);
+    return undefined;
+  }
+  return trimmed.length === 0 ? null : trimmed;
+}
+
+// Validates + normalizes an untrusted PATCH body into an EntryMetadataPatch.
+// At least one of title/notes/location/writtenAt must be present. Unknown
+// keys are ignored here — the route (which also handles the separate
+// journalId move branch) decides what "mixed" or "empty" means at the body
+// level. writtenAt is expected pre-computed by the client (the same
+// local-noon ISO produced by writtenAtIso at capture time) — this only
+// checks it parses (or is null, clearing it).
+export function validateEntryMetadataPatch(
+  body: unknown,
+): { ok: true; patch: EntryMetadataPatch } | { ok: false; problems: string[] } {
+  if (typeof body !== "object" || body === null) {
+    return { ok: false, problems: ["body must be a JSON object"] };
+  }
+  const b = body as Record<string, unknown>;
+  const provided = METADATA_KEYS.filter((k) => Object.prototype.hasOwnProperty.call(b, k));
+  if (provided.length === 0) {
+    return { ok: false, problems: ["at least one field is required"] };
+  }
+
+  const problems: string[] = [];
+  const patch: EntryMetadataPatch = {};
+
+  if ("title" in b) {
+    const v = normalizeTextField(b.title, "title", TITLE_MAX, problems);
+    if (v !== undefined) patch.title = v;
+  }
+  if ("notes" in b) {
+    const v = normalizeTextField(b.notes, "notes", NOTES_MAX, problems);
+    if (v !== undefined) patch.notes = v;
+  }
+  if ("location" in b) {
+    const v = normalizeTextField(b.location, "location", LOCATION_MAX, problems);
+    if (v !== undefined) patch.location = v;
+  }
+  if ("writtenAt" in b) {
+    const raw = b.writtenAt;
+    if (raw === null) {
+      patch.writtenAt = null;
+    } else if (typeof raw !== "string" || Number.isNaN(Date.parse(raw))) {
+      problems.push("writtenAt must be a valid date or null");
+    } else {
+      patch.writtenAt = raw;
+    }
+  }
+
+  if (problems.length > 0) return { ok: false, problems };
+  return { ok: true, patch };
 }
 
 // Returns a list of human-readable problems; empty means valid. A list (rather

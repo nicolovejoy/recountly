@@ -4,7 +4,7 @@
 // .query). Keeping the SQL and the row→EntryRecord mapping pure means they're
 // testable without a live database; the chosen driver just executes them.
 
-import type { EntryRecord, EntryEnrichment } from "./entry";
+import type { EntryRecord, EntryEnrichment, EntryMetadataPatch } from "./entry";
 
 export interface SqlQuery {
   text: string;
@@ -15,8 +15,18 @@ export interface SqlQuery {
 // Enrichment columns (summary, enriched_at, enrichment_model — Phase 4) append
 // at the end; title/tags predate them. journal_id/written_at (physical-journal
 // archive) append after those.
+//
+// ⚠️ This is also insertEntrySql's INSERT column list — don't append
+// notes/location here. Both are post-save-only (PR B): location's DB DEFAULT
+// supplies 'home' for a brand-new row only if insertEntrySql never names the
+// column, and notes has no insert-time value at all. They're read-only
+// additions, appended via SELECT_COLUMNS below instead.
 const COLUMNS =
   "id, recorded_at, created_at, updated_at, duration_seconds, transcript, title, tags, audio_url, audio_mime, audio_bytes, audio_complete, summary, enriched_at, enrichment_model, journal_id, written_at, page_label";
+
+// Every read (list/search/get) selects notes + location in addition to the
+// insert column list above.
+const SELECT_COLUMNS = `${COLUMNS}, notes, location`;
 
 // Appended only to the list/search SELECTs (not the shared COLUMNS used by
 // insert/get) — the entry list UI needs a photo count to decide whether an
@@ -65,7 +75,7 @@ export function insertEntrySql(rec: EntryRecord): SqlQuery {
 // (soft-deleted — deleted_at set) are excluded everywhere they're listed.
 export function listEntriesSql(limit = 50): SqlQuery {
   return {
-    text: `SELECT ${COLUMNS}, ${PHOTO_COUNT_COLUMN} FROM entries WHERE deleted_at IS NULL ORDER BY coalesce(written_at, recorded_at) DESC LIMIT $1`,
+    text: `SELECT ${SELECT_COLUMNS}, ${PHOTO_COUNT_COLUMN} FROM entries WHERE deleted_at IS NULL ORDER BY coalesce(written_at, recorded_at) DESC LIMIT $1`,
     values: [limit],
   };
 }
@@ -125,7 +135,7 @@ export function searchEntriesSql(f: SearchFilters = {}): SqlQuery {
         : ` ORDER BY ${EFFECTIVE_AT} DESC`;
   const limitPh = next(f.limit ?? 50);
   return {
-    text: `SELECT ${COLUMNS}, ${PHOTO_COUNT_COLUMN} FROM entries${whereSql}${orderSql} LIMIT ${limitPh}`,
+    text: `SELECT ${SELECT_COLUMNS}, ${PHOTO_COUNT_COLUMN} FROM entries${whereSql}${orderSql} LIMIT ${limitPh}`,
     values,
   };
 }
@@ -134,7 +144,7 @@ export function searchEntriesSql(f: SearchFilters = {}): SqlQuery {
 // callers that must distinguish live from trashed — purge's guards — can.
 export function getEntrySql(id: string): SqlQuery {
   return {
-    text: `SELECT ${COLUMNS}, deleted_at FROM entries WHERE id = $1`,
+    text: `SELECT ${SELECT_COLUMNS}, deleted_at FROM entries WHERE id = $1`,
     values: [id],
   };
 }
@@ -165,7 +175,7 @@ export function softDeleteEntrySql(id: string): SqlQuery {
 // row-mapping code and payload shape as live ones.
 export function listTrashedSql(limit = 50): SqlQuery {
   return {
-    text: `SELECT ${COLUMNS}, deleted_at, ${PHOTO_COUNT_COLUMN} FROM entries WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC LIMIT $1`,
+    text: `SELECT ${SELECT_COLUMNS}, deleted_at, ${PHOTO_COUNT_COLUMN} FROM entries WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC LIMIT $1`,
     values: [limit],
   };
 }
@@ -182,14 +192,48 @@ export function restoreEntrySql(id: string): SqlQuery {
 
 // Phase 4 enrichment backfill: write the LLM fields onto an existing row and
 // bump updated_at. Takes the enrichment plus the id and a now-ISO timestamp.
+// ⚠️ title = coalesce(entries.title, $1) (PR B): enrichment only FILLS a null
+// title, never overwrites one — an owner edit on the detail page (which can
+// race this, since save-time enrichment runs off the response path via
+// after()) always wins. summary/tags stay enrichment-owned (unconditional).
 export function updateEnrichmentSql(
   id: string,
   e: EntryEnrichment,
   nowIso: string,
 ): SqlQuery {
   return {
-    text: `UPDATE entries SET title = $1, tags = $2, summary = $3, enriched_at = $4, enrichment_model = $5, updated_at = $6 WHERE id = $7`,
+    text: `UPDATE entries SET title = coalesce(entries.title, $1), tags = $2, summary = $3, enriched_at = $4, enrichment_model = $5, updated_at = $6 WHERE id = $7`,
     values: [e.title, e.tags, e.summary, nowIso, e.model, nowIso, id],
+  };
+}
+
+// Column each EntryMetadataPatch key writes to; fixes iteration order so a
+// multi-field patch's placeholders ($2, $3, ...) are deterministic regardless
+// of key order in the incoming object. Same idiom as journal.ts's
+// UPDATE_COLUMNS/updateJournalSql.
+const METADATA_UPDATE_COLUMNS: { key: keyof EntryMetadataPatch; column: string }[] = [
+  { key: "title", column: "title" },
+  { key: "notes", column: "notes" },
+  { key: "location", column: "location" },
+  { key: "writtenAt", column: "written_at" },
+];
+
+// Post-save metadata edits (PR B): dynamic SET over only the provided keys,
+// always bumping updated_at, RETURNING the full row (SELECT_COLUMNS) so the
+// route can respond with the up-to-date EntryRecord in one query. Plain
+// UPDATE — no CTE, no entry_moves audit log (that idiom is move-only).
+// `AND deleted_at IS NULL` guards against editing a trashed/unknown row —
+// the caller (route) treats zero rows returned as 404, same as
+// softDeleteEntrySql/restoreEntrySql.
+export function updateEntryMetadataSql(id: string, patch: EntryMetadataPatch): SqlQuery {
+  const present = METADATA_UPDATE_COLUMNS.filter(({ key }) =>
+    Object.prototype.hasOwnProperty.call(patch, key),
+  );
+  const sets = present.map(({ column }, i) => `${column} = $${i + 2}`);
+  const values = present.map(({ key }) => patch[key]);
+  return {
+    text: `UPDATE entries SET ${sets.join(", ")}, updated_at = now() WHERE id = $1 AND deleted_at IS NULL RETURNING ${SELECT_COLUMNS}`,
+    values: [id, ...values],
   };
 }
 
@@ -198,7 +242,7 @@ export function updateEnrichmentSql(
 // something the owner just moved to trash.
 export function listUnenrichedSql(limit = 50): SqlQuery {
   return {
-    text: `SELECT ${COLUMNS} FROM entries WHERE enriched_at IS NULL AND deleted_at IS NULL ORDER BY recorded_at DESC LIMIT $1`,
+    text: `SELECT ${SELECT_COLUMNS} FROM entries WHERE enriched_at IS NULL AND deleted_at IS NULL ORDER BY recorded_at DESC LIMIT $1`,
     values: [limit],
   };
 }
@@ -267,6 +311,11 @@ export function rowToEntry(row: EntryRow): EntryRecord {
     journalId: row.journal_id == null ? null : String(row.journal_id),
     writtenAt: row.written_at == null ? null : toIso(row.written_at),
     pageLabel: row.page_label == null ? null : String(row.page_label),
+    // notes/location (PR B): every SELECT_COLUMNS-based read carries these
+    // keys (null on rows that predate the feature or were never edited), so
+    // this always resolves to a value, never stays undefined, on a real row.
+    notes: row.notes == null ? null : String(row.notes),
+    location: row.location == null ? null : String(row.location),
     // Only present on rows from listEntriesSql/searchEntriesSql (the
     // PHOTO_COUNT_COLUMN subselect); absent on getEntrySql/insert rows, where
     // row.photo_count is undefined and this stays undefined too.

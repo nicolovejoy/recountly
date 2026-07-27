@@ -15,6 +15,14 @@
 // recording" link back to Capture — carrying the written date forward via
 // ?writtenAt= since (unlike the active journal, which is DB-backed) it's
 // local RecorderClient state that would otherwise reset.
+//
+// Entry metadata editing (PR B): title/notes/location/written date are all
+// post-save-only edits made here (never at capture) via PATCH /api/entries/
+// [id] (metadata branch — separate from the existing move branch). The Edit
+// affordance is hidden while the #54 post-save poll is still active so a
+// late-arriving poll result can't be clobbered by (or clobber) an in-flight
+// edit; Save writes the PATCH response straight into `entry` (handleMove's
+// setEntry idiom), Cancel just drops the local form state.
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
@@ -23,7 +31,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { formatElapsed } from "@/lib/elapsed";
 import type { EntryRecord } from "@/lib/entry";
 import type { PhotoRecord } from "@/lib/photo";
-import { writtenAtDateInput } from "@/lib/written-at";
+import { writtenAtDateInput, writtenAtIso } from "@/lib/written-at";
 import {
   initialPollState,
   nextPollState,
@@ -81,6 +89,19 @@ export default function EntryDetail({ id }: { id: string }) {
   const [movePickerOpen, setMovePickerOpen] = useState(false);
   const [moving, setMoving] = useState(false);
   const [moveError, setMoveError] = useState<string | null>(null);
+
+  // Post-save metadata editing (PR B): title/notes/location/written date.
+  // Local form state, only populated when editing starts (startEdit) — never
+  // derived live from `entry` while editing, so a poll's setEntry (still
+  // possible until `polling` goes false, which is also what gates the Edit
+  // button itself) can't clobber in-progress input.
+  const [editing, setEditing] = useState(false);
+  const [editTitle, setEditTitle] = useState("");
+  const [editLocation, setEditLocation] = useState("");
+  const [editWrittenDate, setEditWrittenDate] = useState(""); // YYYY-MM-DD for <input type="date">
+  const [editNotes, setEditNotes] = useState("");
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
 
   // A ref-backed mirror of pollState so the interval closure always advances
   // from the current phase without re-subscribing on every transition.
@@ -262,6 +283,52 @@ export default function EntryDetail({ id }: { id: string }) {
     }
   }
 
+  function startEdit() {
+    if (!entry) return;
+    setEditTitle(entry.title ?? "");
+    setEditLocation(entry.location ?? "");
+    setEditWrittenDate(entry.writtenAt ? (writtenAtDateInput(entry.writtenAt) ?? "") : "");
+    setEditNotes(entry.notes ?? "");
+    setEditError(null);
+    setEditing(true);
+  }
+
+  function cancelEdit() {
+    setEditing(false);
+    setEditError(null);
+  }
+
+  async function handleSaveEdit() {
+    if (!entry) return;
+    setSavingEdit(true);
+    setEditError(null);
+    try {
+      const res = await fetch(`/api/entries/${entry.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: editTitle,
+          location: editLocation,
+          notes: editNotes,
+          // Blank = clearing (the field is available for every entry, not
+          // just journal ones); a filled date is anchored at local noon
+          // (writtenAtIso) same as capture-time — a malformed value can't
+          // reach here (the browser date picker only yields well-formed
+          // YYYY-MM-DD or "").
+          writtenAt: editWrittenDate.trim() ? (writtenAtIso(editWrittenDate) ?? null) : null,
+        }),
+      });
+      if (!res.ok) throw new Error(`entry update route ${res.status}`);
+      const data = (await res.json()) as { entry: EntryRecord };
+      setEntry(data.entry);
+      setEditing(false);
+    } catch (err) {
+      setEditError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSavingEdit(false);
+    }
+  }
+
   const journalLabel =
     entry?.journalId ? (journals?.find((j) => j.id === entry.journalId)?.label ?? "journal") : null;
   // "New recording" carries the written date AND page label forward (both are
@@ -340,46 +407,113 @@ export default function EntryDetail({ id }: { id: string }) {
 
       {entry && (
         <>
-          <div className="flex flex-col gap-2">
-            <h1 className="text-lg font-medium text-foreground/90">
-              {entry.title ?? formatWhen(entry.recordedAt)}
-            </h1>
-            {entry.title && (
-              <span className="text-xs text-foreground/40">{formatWhen(entry.recordedAt)}</span>
-            )}
-            {(journalLabel || entry.writtenAt || entry.pageLabel) && (
-              <div className="flex flex-wrap items-center gap-2 text-xs text-foreground/40">
-                {journalLabel && (
-                  <span className="rounded-full border border-foreground/10 px-2 py-0.5">
-                    📓 {journalLabel}
-                  </span>
-                )}
-                {entry.pageLabel && (
-                  <span className="rounded-full border border-foreground/10 px-2 py-0.5">
-                    {entry.pageLabel}
-                  </span>
-                )}
-                {entry.writtenAt && (
-                  <span>written {new Date(entry.writtenAt).toLocaleDateString()}</span>
-                )}
+          {editing ? (
+            <div className="flex flex-col gap-2">
+              <input
+                type="text"
+                value={editTitle}
+                onChange={(e) => setEditTitle(e.target.value)}
+                placeholder={formatWhen(entry.recordedAt)}
+                aria-label="Title"
+                className="rounded-lg border border-foreground/15 bg-transparent px-3 py-2 text-sm outline-none focus:border-foreground/40"
+              />
+              <input
+                type="text"
+                value={editLocation}
+                onChange={(e) => setEditLocation(e.target.value)}
+                placeholder="Location"
+                aria-label="Location"
+                className="rounded-lg border border-foreground/15 bg-transparent px-3 py-2 text-sm outline-none focus:border-foreground/40"
+              />
+              <label className="flex flex-col gap-1 text-xs text-foreground/50">
+                Written date
+                <input
+                  type="date"
+                  value={editWrittenDate}
+                  onChange={(e) => setEditWrittenDate(e.target.value)}
+                  className="rounded-lg border border-foreground/15 bg-transparent px-3 py-2 text-sm text-foreground outline-none focus:border-foreground/40"
+                />
+              </label>
+              <textarea
+                value={editNotes}
+                onChange={(e) => setEditNotes(e.target.value)}
+                placeholder="Notes"
+                rows={3}
+                aria-label="Notes"
+                className="rounded-lg border border-foreground/15 bg-transparent px-3 py-2 text-sm outline-none focus:border-foreground/40"
+              />
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleSaveEdit}
+                  disabled={savingEdit}
+                  className="rounded-full border border-foreground/20 px-3 py-1 text-xs text-foreground/70 transition-colors hover:bg-foreground/[0.06] disabled:opacity-50"
+                >
+                  {savingEdit ? "Saving…" : "Save"}
+                </button>
+                <button
+                  type="button"
+                  onClick={cancelEdit}
+                  disabled={savingEdit}
+                  className="text-xs text-foreground/40 hover:text-foreground/70 disabled:opacity-50"
+                >
+                  Cancel
+                </button>
               </div>
-            )}
-            {entry.summary && (
-              <p className="text-sm italic text-foreground/60">{entry.summary}</p>
-            )}
-            {entry.tags.length > 0 && (
-              <ul className="flex flex-wrap gap-1.5">
-                {entry.tags.map((tag) => (
-                  <li
-                    key={tag}
-                    className="rounded-full bg-foreground/5 px-2 py-0.5 text-xs text-foreground/60"
-                  >
-                    {tag}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
+              {editError && (
+                <p className="text-sm text-red-500">Couldn’t save: {editError}</p>
+              )}
+            </div>
+          ) : (
+            <div className="flex flex-col gap-2">
+              <h1 className="text-lg font-medium text-foreground/90">
+                {entry.title ?? formatWhen(entry.recordedAt)}
+              </h1>
+              {entry.title && (
+                <span className="text-xs text-foreground/40">{formatWhen(entry.recordedAt)}</span>
+              )}
+              {(journalLabel || entry.writtenAt || entry.pageLabel || entry.location) && (
+                <div className="flex flex-wrap items-center gap-2 text-xs text-foreground/40">
+                  {journalLabel && (
+                    <span className="rounded-full border border-foreground/10 px-2 py-0.5">
+                      📓 {journalLabel}
+                    </span>
+                  )}
+                  {entry.pageLabel && (
+                    <span className="rounded-full border border-foreground/10 px-2 py-0.5">
+                      {entry.pageLabel}
+                    </span>
+                  )}
+                  {entry.location && (
+                    <span className="rounded-full border border-foreground/10 px-2 py-0.5">
+                      📍 {entry.location}
+                    </span>
+                  )}
+                  {entry.writtenAt && (
+                    <span>written {new Date(entry.writtenAt).toLocaleDateString()}</span>
+                  )}
+                </div>
+              )}
+              {entry.summary && (
+                <p className="text-sm italic text-foreground/60">{entry.summary}</p>
+              )}
+              {entry.notes && (
+                <p className="whitespace-pre-wrap text-sm text-foreground/70">{entry.notes}</p>
+              )}
+              {entry.tags.length > 0 && (
+                <ul className="flex flex-wrap gap-1.5">
+                  {entry.tags.map((tag) => (
+                    <li
+                      key={tag}
+                      className="rounded-full bg-foreground/5 px-2 py-0.5 text-xs text-foreground/60"
+                    >
+                      {tag}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
 
           {/* Transcript-first: full text, no clamp — this is the read view. */}
           <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground/80">
@@ -428,6 +562,19 @@ export default function EntryDetail({ id }: { id: string }) {
                 {formatElapsed(entry.durationSeconds)}
               </span>
               <span className="flex shrink-0 items-baseline gap-2">
+                {/* Hidden while the #54 post-save placeholder/poll is still
+                    active — entering edit mode against a row that hasn't
+                    fully landed (or whose poll could still update it) is
+                    confusing rather than useful. */}
+                {!polling && !editing && (
+                  <button
+                    type="button"
+                    onClick={startEdit}
+                    className="text-xs text-foreground/40 hover:text-foreground/70"
+                  >
+                    Edit
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => setMovePickerOpen((open) => !open)}
