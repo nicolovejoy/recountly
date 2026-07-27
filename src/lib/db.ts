@@ -14,6 +14,7 @@ import {
   listTrashedSql,
   restoreEntrySql,
   updateEnrichmentSql,
+  updateEntryMetadataSql,
   listUnenrichedSql,
   moveEntrySql,
   deleteEntryMovesByEntrySql,
@@ -21,7 +22,7 @@ import {
   type EntryRow,
   type SearchFilters,
 } from "./entry-sql";
-import type { EntryRecord, EntryEnrichment } from "./entry";
+import type { EntryRecord, EntryEnrichment, EntryMetadataPatch } from "./entry";
 import {
   insertJournalSql,
   listJournalsSql,
@@ -158,6 +159,19 @@ export async function updateEntryEnrichment(
 ): Promise<void> {
   const { text, values } = updateEnrichmentSql(id, enrichment, nowIso);
   await runner.query(text, values);
+}
+
+// Post-save metadata edits (PR B): partial update, RETURNING the full row.
+// Null return means no LIVE row matched the id (unknown or trashed) — the
+// route turns that into a 404, same as updateJournal/moveEntry.
+export async function updateEntryMetadata(
+  id: string,
+  patch: EntryMetadataPatch,
+  runner: QueryRunner = defaultRunner(),
+): Promise<EntryRecord | null> {
+  const { text, values } = updateEntryMetadataSql(id, patch);
+  const rows = await runner.query(text, values);
+  return rows.length ? rowToEntry(rows[0]) : null;
 }
 
 // Rows never enriched (newest-first), for the backfill endpoint.

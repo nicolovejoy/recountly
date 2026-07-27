@@ -9,12 +9,13 @@ import {
   listTrashedSql,
   restoreEntrySql,
   updateEnrichmentSql,
+  updateEntryMetadataSql,
   listUnenrichedSql,
   moveEntrySql,
   deleteEntryMovesByEntrySql,
   rowToEntry,
 } from "./entry-sql";
-import type { EntryRecord, EntryEnrichment } from "./entry";
+import type { EntryRecord, EntryEnrichment, EntryMetadataPatch } from "./entry";
 
 const rec: EntryRecord = {
   id: "01HXAMPLE0000000000000000",
@@ -251,7 +252,7 @@ describe("updateEnrichmentSql", () => {
   it("updates the enrichment columns + updated_at, filtered by id", () => {
     const q = updateEnrichmentSql("01HX", enrichment, "2026-06-25T12:00:00.000Z");
     expect(q.text).toMatch(/^UPDATE entries SET/);
-    expect(q.text).toContain("title = $1");
+    expect(q.text).toContain("title = coalesce(entries.title, $1)");
     expect(q.text).toContain("tags = $2");
     expect(q.text).toContain("summary = $3");
     expect(q.text).toContain("enriched_at = $4");
@@ -267,6 +268,63 @@ describe("updateEnrichmentSql", () => {
       "2026-06-25T12:00:00.000Z",
       "01HX",
     ]);
+  });
+
+  it("wraps title in coalesce so enrichment never clobbers an owner-edited title (PR B)", () => {
+    const q = updateEnrichmentSql("01HX", enrichment, "2026-06-25T12:00:00.000Z");
+    expect(q.text).not.toContain("title = $1");
+    expect(q.text).toContain("coalesce(entries.title, $1)");
+    // Still passes the enrichment's title as $1 — coalesce only skips it when
+    // entries.title is already non-null; the value itself is unchanged.
+    expect(q.values[0]).toBe("A Morning Walk");
+  });
+});
+
+describe("updateEntryMetadataSql (PR B entry metadata editing)", () => {
+  it("updates a single field + updated_at, filtered by id and liveness", () => {
+    const q = updateEntryMetadataSql("01HX", { title: "New title" });
+    expect(q.text).toMatch(/^UPDATE entries SET title = \$2, updated_at = now\(\) WHERE/);
+    expect(q.text).toContain("WHERE id = $1 AND deleted_at IS NULL RETURNING");
+    expect(q.values).toEqual(["01HX", "New title"]);
+  });
+
+  it("updates each field alone with the right column name", () => {
+    expect(updateEntryMetadataSql("01HX", { notes: "chat with Paul Reed" }).text).toContain(
+      "notes = $2",
+    );
+    expect(updateEntryMetadataSql("01HX", { location: "cabin" }).text).toContain(
+      "location = $2",
+    );
+    expect(
+      updateEntryMetadataSql("01HX", { writtenAt: "1994-03-02T12:00:00.000Z" }).text,
+    ).toContain("written_at = $2");
+  });
+
+  it("combines multiple fields with deterministic placeholder order, independent of key order", () => {
+    const patch: EntryMetadataPatch = {
+      writtenAt: "1994-03-02T12:00:00.000Z",
+      title: "Title",
+      location: "home",
+    };
+    const q = updateEntryMetadataSql("01HX", patch);
+    expect(q.text).toContain("title = $2, location = $3, written_at = $4");
+    expect(q.values).toEqual(["01HX", "Title", "home", "1994-03-02T12:00:00.000Z"]);
+  });
+
+  it("passes an explicit null through as a clearing value", () => {
+    const q = updateEntryMetadataSql("01HX", { title: null, notes: null });
+    expect(q.values).toEqual(["01HX", null, null]);
+  });
+
+  it("guards on deleted_at IS NULL (a trashed/unknown id returns no row)", () => {
+    const q = updateEntryMetadataSql("01HX", { title: "x" });
+    expect(q.text).toContain("WHERE id = $1 AND deleted_at IS NULL");
+  });
+
+  it("returns the full SELECT_COLUMNS row (notes + location included)", () => {
+    const q = updateEntryMetadataSql("01HX", { title: "x" });
+    expect(q.text).toContain("RETURNING");
+    expect(q.text).toMatch(/RETURNING .*notes, location$/);
   });
 });
 
@@ -371,6 +429,8 @@ describe("rowToEntry", () => {
       journalId: null,
       writtenAt: null,
       pageLabel: null,
+      notes: null,
+      location: null,
     });
   });
 
@@ -563,6 +623,45 @@ describe("page_label column (capture polish)", () => {
   it("listEntriesSql and searchEntriesSql select page_label", () => {
     expect(listEntriesSql().text).toContain("page_label");
     expect(searchEntriesSql().text).toContain("page_label");
+  });
+});
+
+describe("notes/location columns (PR B entry metadata editing)", () => {
+  const baseRow = {
+    id: "01HX",
+    recorded_at: "2026-06-13T01:00:00.000Z",
+    created_at: "2026-06-13T01:00:05.000Z",
+    updated_at: "2026-06-13T01:00:05.000Z",
+    duration_seconds: 10,
+    transcript: "hello",
+    title: null,
+    tags: [],
+    audio_url: null,
+    audio_mime: null,
+    audio_bytes: null,
+  };
+
+  it("insertEntrySql does NOT carry notes/location (post-save-only; DB default supplies location)", () => {
+    const q = insertEntrySql(rec);
+    expect(q.text).not.toContain("notes");
+    expect(q.text).not.toContain("location");
+    expect(q.values).toHaveLength(18);
+  });
+
+  it("listEntriesSql, searchEntriesSql, getEntrySql, listTrashedSql, listUnenrichedSql all select notes + location", () => {
+    expect(listEntriesSql().text).toContain(", notes, location");
+    expect(searchEntriesSql().text).toContain(", notes, location");
+    expect(getEntrySql("e1").text).toContain(", notes, location");
+    expect(listTrashedSql().text).toContain(", notes, location");
+    expect(listUnenrichedSql().text).toContain(", notes, location");
+  });
+
+  it("rowToEntry maps notes/location, defaulting to null", () => {
+    expect(rowToEntry({ ...baseRow }).notes).toBeNull();
+    expect(rowToEntry({ ...baseRow }).location).toBeNull();
+    expect(rowToEntry({ ...baseRow, notes: "chat with Paul Reed", location: "cabin" })).toMatchObject(
+      { notes: "chat with Paul Reed", location: "cabin" },
+    );
   });
 });
 

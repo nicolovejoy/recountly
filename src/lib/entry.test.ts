@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { validateEntryInput, buildEntryRecord, type EntryInput } from "./entry";
+import {
+  validateEntryInput,
+  buildEntryRecord,
+  validateEntryMetadataPatch,
+  type EntryInput,
+} from "./entry";
 
 const validInput: EntryInput = {
   transcript: "Today I walked and thought about the rewrite.",
@@ -236,5 +241,132 @@ describe("page label (capture polish)", () => {
       pageLabel: 42,
     });
     expect(errors).toContain("pageLabel must be a string");
+  });
+});
+
+describe("validateEntryMetadataPatch (PR B entry metadata editing)", () => {
+  it("rejects a non-object body", () => {
+    expect(validateEntryMetadataPatch(null)).toEqual({
+      ok: false,
+      problems: ["body must be a JSON object"],
+    });
+    expect(validateEntryMetadataPatch("nope")).toEqual({
+      ok: false,
+      problems: ["body must be a JSON object"],
+    });
+  });
+
+  it("rejects an empty patch (no known keys)", () => {
+    expect(validateEntryMetadataPatch({})).toEqual({
+      ok: false,
+      problems: ["at least one field is required"],
+    });
+  });
+
+  it("ignores unknown keys (they don't count toward 'at least one')", () => {
+    expect(validateEntryMetadataPatch({ journalId: "01J" })).toEqual({
+      ok: false,
+      problems: ["at least one field is required"],
+    });
+  });
+
+  it("accepts each field alone", () => {
+    expect(validateEntryMetadataPatch({ title: "New title" })).toEqual({
+      ok: true,
+      patch: { title: "New title" },
+    });
+    expect(validateEntryMetadataPatch({ notes: "chat with Paul Reed" })).toEqual({
+      ok: true,
+      patch: { notes: "chat with Paul Reed" },
+    });
+    expect(validateEntryMetadataPatch({ location: "cabin" })).toEqual({
+      ok: true,
+      patch: { location: "cabin" },
+    });
+    expect(
+      validateEntryMetadataPatch({ writtenAt: "1994-03-02T12:00:00.000Z" }),
+    ).toEqual({ ok: true, patch: { writtenAt: "1994-03-02T12:00:00.000Z" } });
+  });
+
+  it("accepts all fields combined", () => {
+    const out = validateEntryMetadataPatch({
+      title: "Title",
+      notes: "Notes",
+      location: "home",
+      writtenAt: "1994-03-02T12:00:00.000Z",
+    });
+    expect(out).toEqual({
+      ok: true,
+      patch: {
+        title: "Title",
+        notes: "Notes",
+        location: "home",
+        writtenAt: "1994-03-02T12:00:00.000Z",
+      },
+    });
+  });
+
+  it("trims text fields", () => {
+    const out = validateEntryMetadataPatch({ title: "  Trimmed  ", location: "  home  " });
+    expect(out).toEqual({ ok: true, patch: { title: "Trimmed", location: "home" } });
+  });
+
+  it("turns an empty/blank string into null (clearing) for title/notes/location", () => {
+    expect(validateEntryMetadataPatch({ title: "" })).toEqual({ ok: true, patch: { title: null } });
+    expect(validateEntryMetadataPatch({ notes: "   " })).toEqual({ ok: true, patch: { notes: null } });
+    expect(validateEntryMetadataPatch({ location: "" })).toEqual({
+      ok: true,
+      patch: { location: null },
+    });
+  });
+
+  it("accepts an explicit null for any field (clearing)", () => {
+    expect(validateEntryMetadataPatch({ title: null })).toEqual({ ok: true, patch: { title: null } });
+    expect(validateEntryMetadataPatch({ notes: null })).toEqual({ ok: true, patch: { notes: null } });
+    expect(validateEntryMetadataPatch({ location: null })).toEqual({
+      ok: true,
+      patch: { location: null },
+    });
+    expect(validateEntryMetadataPatch({ writtenAt: null })).toEqual({
+      ok: true,
+      patch: { writtenAt: null },
+    });
+  });
+
+  it("rejects a non-string, non-null value for a text field", () => {
+    const out = validateEntryMetadataPatch({ title: 42 });
+    expect(out).toEqual({ ok: false, problems: ["title must be a string or null"] });
+  });
+
+  it("enforces length caps", () => {
+    expect(validateEntryMetadataPatch({ title: "x".repeat(301) })).toEqual({
+      ok: false,
+      problems: ["title must be 300 characters or fewer"],
+    });
+    expect(validateEntryMetadataPatch({ title: "x".repeat(300) }).ok).toBe(true);
+    expect(validateEntryMetadataPatch({ location: "x".repeat(201) })).toEqual({
+      ok: false,
+      problems: ["location must be 200 characters or fewer"],
+    });
+    expect(validateEntryMetadataPatch({ notes: "x".repeat(20_001) })).toEqual({
+      ok: false,
+      problems: ["notes must be 20000 characters or fewer"],
+    });
+  });
+
+  it("rejects an unparseable writtenAt", () => {
+    const out = validateEntryMetadataPatch({ writtenAt: "not-a-date" });
+    expect(out).toEqual({ ok: false, problems: ["writtenAt must be a valid date or null"] });
+  });
+
+  it("rejects a non-string, non-null writtenAt", () => {
+    const out = validateEntryMetadataPatch({ writtenAt: 42 });
+    expect(out).toEqual({ ok: false, problems: ["writtenAt must be a valid date or null"] });
+  });
+
+  it("collects multiple problems at once", () => {
+    const out = validateEntryMetadataPatch({ title: 1, location: "x".repeat(201), writtenAt: "nope" });
+    expect(out.ok).toBe(false);
+    if (!out.ok) expect(out.problems.length).toBeGreaterThanOrEqual(3);
   });
 });

@@ -9,17 +9,19 @@ vi.mock("@/lib/db", () => ({
   getEntry: vi.fn(),
   getJournal: vi.fn(),
   moveEntry: vi.fn(),
+  updateEntryMetadata: vi.fn(),
 }));
 
 import { DELETE, PATCH, GET } from "./route";
 import { getServerSession } from "@/lib/auth-server";
-import { softDeleteEntry, getEntry, getJournal, moveEntry } from "@/lib/db";
+import { softDeleteEntry, getEntry, getJournal, moveEntry, updateEntryMetadata } from "@/lib/db";
 
 const mockSession = vi.mocked(getServerSession);
 const mockSoftDelete = vi.mocked(softDeleteEntry);
 const mockGetEntry = vi.mocked(getEntry);
 const mockGetJournal = vi.mocked(getJournal);
 const mockMove = vi.mocked(moveEntry);
+const mockUpdateMetadata = vi.mocked(updateEntryMetadata);
 
 const callDelete = (id: string) =>
   DELETE(new Request(`http://test/api/entries/${id}`, { method: "DELETE" }), {
@@ -245,6 +247,87 @@ describe("PATCH /api/entries/[id] (move, issue #28)", () => {
     expect(res.status).toBe(500);
     const body = await res.json();
     expect(body.error).toBe("Move failed");
+    expect(body.detail).toContain("boom");
+  });
+});
+
+describe("PATCH /api/entries/[id] (metadata edit, PR B)", () => {
+  it("401s without a session and never touches the db", async () => {
+    mockSession.mockResolvedValue(null as never);
+    const res = await callPatch("e1", { title: "New title" });
+    expect(res.status).toBe(401);
+    expect(mockUpdateMetadata).not.toHaveBeenCalled();
+  });
+
+  it("400s on an empty body (neither journalId nor a metadata field)", async () => {
+    const res = await callPatch("e1", {});
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error: "Body must include journalId or an entry metadata field",
+    });
+    expect(mockUpdateMetadata).not.toHaveBeenCalled();
+    expect(mockGetEntry).not.toHaveBeenCalled();
+  });
+
+  it("400s when journalId is mixed with a metadata field", async () => {
+    const res = await callPatch("e1", { journalId: "01J", title: "New title" });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error: "Body must be either a move (journalId) or a metadata edit, not both",
+    });
+    expect(mockUpdateMetadata).not.toHaveBeenCalled();
+    expect(mockMove).not.toHaveBeenCalled();
+  });
+
+  it("400s on an invalid metadata patch (over the title length cap)", async () => {
+    const res = await callPatch("e1", { title: "x".repeat(301) });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toBe("Invalid entry update");
+    expect(body.problems).toContain("title must be 300 characters or fewer");
+    expect(mockUpdateMetadata).not.toHaveBeenCalled();
+  });
+
+  it("404s for an unknown or trashed entry (updateEntryMetadata returns null)", async () => {
+    mockUpdateMetadata.mockResolvedValue(null);
+    const res = await callPatch("nope", { title: "New title" });
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ error: "Not found" });
+  });
+
+  it("200s with the updated entry on a single-field edit", async () => {
+    const entry = { id: "e1", title: "New title" } as never;
+    mockUpdateMetadata.mockResolvedValue(entry);
+    const res = await callPatch("e1", { title: "New title" });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ entry });
+    expect(mockUpdateMetadata).toHaveBeenCalledWith("e1", { title: "New title" });
+  });
+
+  it("200s on a combined title/notes/location/writtenAt edit, clearing values with \"\"", async () => {
+    const entry = { id: "e1", notes: "chat with Paul Reed" } as never;
+    mockUpdateMetadata.mockResolvedValue(entry);
+    const res = await callPatch("e1", {
+      title: "",
+      notes: "chat with Paul Reed",
+      location: "cabin",
+      writtenAt: "1994-03-02T12:00:00.000Z",
+    });
+    expect(res.status).toBe(200);
+    expect(mockUpdateMetadata).toHaveBeenCalledWith("e1", {
+      title: null,
+      notes: "chat with Paul Reed",
+      location: "cabin",
+      writtenAt: "1994-03-02T12:00:00.000Z",
+    });
+  });
+
+  it("500s with detail when updateEntryMetadata throws", async () => {
+    mockUpdateMetadata.mockRejectedValue(new Error("boom"));
+    const res = await callPatch("e1", { title: "New title" });
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body.error).toBe("Failed to update entry");
     expect(body.detail).toContain("boom");
   });
 });

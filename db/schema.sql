@@ -111,3 +111,40 @@ CREATE INDEX IF NOT EXISTS entry_moves_entry_id ON entry_moves (entry_id);
 ALTER TABLE journals ADD COLUMN IF NOT EXISTS started_on date;
 ALTER TABLE journals ADD COLUMN IF NOT EXISTS ended_on date;
 ALTER TABLE journals ADD COLUMN IF NOT EXISTS kind text;
+
+-- Entry metadata editing (PR B, 2026-07-27): free-text notes and a location,
+-- both post-save-editable on the entry detail page (src/lib/entry.ts's
+-- validateEntryMetadataPatch). location gets a DEFAULT so brand-new entries
+-- start filed 'home'; ADD COLUMN without a default first means existing rows
+-- stay null (no fabricated history) — only inserts *after* the SET DEFAULT
+-- pick it up, and insertEntrySql deliberately never lists location/notes so
+-- the DB default is what supplies it.
+ALTER TABLE entries ADD COLUMN IF NOT EXISTS notes text;
+ALTER TABLE entries ADD COLUMN IF NOT EXISTS location text;
+ALTER TABLE entries ALTER COLUMN location SET DEFAULT 'home';
+
+-- transcript_tsv is a STORED generated column, so its expression can't be
+-- ALTERed in place — grow it to also index notes/location by dropping and
+-- recreating it (and its GIN index, which the DROP COLUMN takes with it).
+-- Guarded so repeated `pnpm db:migrate` runs are idempotent: only drop when
+-- the live expression doesn't already reference notes (i.e. hasn't been
+-- rebuilt yet).
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'entries' AND column_name = 'transcript_tsv'
+      AND (generation_expression IS NULL OR generation_expression NOT LIKE '%notes%')
+  ) THEN
+    EXECUTE 'ALTER TABLE entries DROP COLUMN transcript_tsv';
+  END IF;
+END $$;
+
+ALTER TABLE entries ADD COLUMN IF NOT EXISTS transcript_tsv tsvector
+  GENERATED ALWAYS AS (
+    to_tsvector('english',
+      coalesce(title, '') || ' ' || coalesce(notes, '') || ' ' ||
+      coalesce(location, '') || ' ' || transcript)
+  ) STORED;
+
+CREATE INDEX IF NOT EXISTS entries_transcript_tsv_gin ON entries USING GIN (transcript_tsv);

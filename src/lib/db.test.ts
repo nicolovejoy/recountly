@@ -9,6 +9,7 @@ import {
   listTrashedEntries,
   restoreEntry,
   updateEntryEnrichment,
+  updateEntryMetadata,
   listUnenriched,
   insertJournal,
   listJournals,
@@ -231,6 +232,28 @@ describe("updateEntryEnrichment", () => {
     expect(calls[0].values).toContain("01HX");
     expect(calls[0].values).toContain("Walk");
     expect(calls[0].values).toContain("claude-haiku-4-5");
+  });
+});
+
+describe("updateEntryMetadata (PR B entry metadata editing)", () => {
+  it("runs a parameterized UPDATE carrying the patch + id, returns the mapped row", async () => {
+    const { runner, calls } = fakeRunner([
+      { ...sampleRow, title: "New title", notes: "chat with Paul Reed", location: "cabin" },
+    ]);
+    const out = await updateEntryMetadata(
+      "01HX",
+      { title: "New title", notes: "chat with Paul Reed", location: "cabin" },
+      runner,
+    );
+    expect(calls).toHaveLength(1);
+    expect(calls[0].text).toMatch(/^UPDATE entries SET/);
+    expect(calls[0].values).toEqual(["01HX", "New title", "chat with Paul Reed", "cabin"]);
+    expect(out).toMatchObject({ id: "01HX", title: "New title", notes: "chat with Paul Reed", location: "cabin" });
+  });
+
+  it("returns null when no live row matched (unknown id or trashed)", async () => {
+    const { runner } = fakeRunner([]);
+    expect(await updateEntryMetadata("nope", { title: "x" }, runner)).toBeNull();
   });
 });
 
