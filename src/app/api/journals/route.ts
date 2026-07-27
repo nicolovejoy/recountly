@@ -43,6 +43,12 @@ export async function POST(request: Request) {
     notes: typeof body.notes === "string" && body.notes.trim() ? body.notes.trim() : null,
     active: false,
     createdAt: new Date().toISOString(),
+    // startedOn/endedOn/kind (PR A) aren't set on creation — insertJournalSql
+    // doesn't even write these columns (they default to null); only PATCH
+    // /api/journals/[id] sets them later.
+    startedOn: null,
+    endedOn: null,
+    kind: null,
   };
   try {
     await insertJournal(journal);
