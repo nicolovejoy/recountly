@@ -9,7 +9,6 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import type { JournalSummary } from "@/lib/journal";
 import { resolveJournalDateRange } from "@/lib/date-range";
 
@@ -28,7 +27,6 @@ function CoverSlot() {
 }
 
 export default function LibraryView() {
-  const router = useRouter();
   const [data, setData] = useState<Summaries | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -49,10 +47,13 @@ export default function LibraryView() {
         body: JSON.stringify({ label }),
       });
       if (!res.ok) throw new Error(`create failed (${res.status})`);
-      const { journal } = (await res.json()) as { journal: { id: string } };
-      router.push(`/library/${journal.id}`);
+      setCreating(false);
+      setNewLabel("");
+      const refreshed = await fetch("/api/journals/summaries");
+      if (refreshed.ok) setData((await refreshed.json()) as Summaries);
     } catch (err) {
       setCreateError(err instanceof Error ? err.message : String(err));
+    } finally {
       setCreateBusy(false);
     }
   }
