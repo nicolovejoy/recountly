@@ -23,6 +23,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { pauseOthers } from "@/lib/audio-exclusive";
+import { openSelectPicker } from "./openSelectPicker";
 import { formatElapsed } from "@/lib/elapsed";
 import type { EntryRecord } from "@/lib/entry";
 import type { PhotoRecord } from "@/lib/photo";
@@ -235,6 +236,7 @@ export default function EntryCard({
         <div className="flex items-center gap-2 text-xs text-foreground/50">
           <span>Move to</span>
           <select
+            ref={openSelectPicker}
             defaultValue=""
             disabled={moving}
             onChange={(ev) => {

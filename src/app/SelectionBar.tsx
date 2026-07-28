@@ -6,6 +6,14 @@
 // — the caller owns selection state (useBulkSelection) and wires up the two
 // actions; this component just renders the count, journal picker, and the
 // Move/Trash buttons plus the error line.
+//
+// Sticky (owner feedback 2026-07-28): selecting entries far down a 20-entry
+// list then scrolling back up to reach the buttons was a chore — the bar now
+// pins to the top of the viewport while the list scrolls under it. Clicking
+// Move with no journal chosen opens the picker instead of sitting disabled.
+
+import { useRef } from "react";
+import { openSelectPicker } from "./openSelectPicker";
 
 const UNFILED_VALUE = "__unfiled__";
 
@@ -33,10 +41,12 @@ export default function SelectionBar({
   error: string | null;
 }) {
   const noun = count === 1 ? "entry" : "entries";
+  const pickerRef = useRef<HTMLSelectElement>(null);
   return (
-    <div className="flex flex-wrap items-center gap-2 rounded-lg border border-foreground/10 p-2 text-xs text-foreground/60">
+    <div className="sticky top-2 z-10 flex flex-wrap items-center gap-2 rounded-lg border border-foreground/10 bg-background p-2 text-xs text-foreground/60 shadow-md">
       <span>{count} selected</span>
       <select
+        ref={pickerRef}
         value={bulkTarget}
         onChange={(ev) => onBulkTargetChange(ev.target.value)}
         disabled={busy}
@@ -53,8 +63,8 @@ export default function SelectionBar({
       </select>
       <button
         type="button"
-        onClick={onMove}
-        disabled={busy || !bulkTarget || count === 0}
+        onClick={() => (bulkTarget ? onMove() : openSelectPicker(pickerRef.current))}
+        disabled={busy || count === 0}
         className="rounded-lg border border-foreground/15 px-2 py-1 text-foreground/70 hover:border-foreground/40 disabled:opacity-40"
       >
         {busy ? "Working…" : `Move ${count} ${noun}`}

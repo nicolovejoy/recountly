@@ -12,20 +12,32 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import type { EntryRecord } from "@/lib/entry";
 import { buildSearchQueryString } from "@/lib/search";
 import EntryCard from "./EntryCard";
 import SelectionBar, { UNFILED_VALUE } from "./SelectionBar";
 import SelectModeToggle from "./SelectModeToggle";
 import { useBulkSelection } from "./useBulkSelection";
+import { useEscUp } from "./useEscUp";
 import { useJournals } from "./useJournals";
 
 export default function UnfiledView() {
+  const router = useRouter();
   const [entries, setEntries] = useState<EntryRecord[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const { journals } = useJournals();
 
   const bulk = useBulkSelection();
+
+  // Esc: leave select mode first, else up to the Library.
+  useEscUp(() => {
+    if (bulk.selectMode) {
+      bulk.exitSelectMode();
+      return;
+    }
+    router.push("/library");
+  });
 
   const reload = useCallback(() => {
     const queryString = buildSearchQueryString({ unfiled: true, limit: 200 });
