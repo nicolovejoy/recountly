@@ -8,8 +8,10 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { formatElapsed } from "@/lib/elapsed";
 import type { EntryRecord } from "@/lib/entry";
+import { useEscUp } from "./useEscUp";
 
 function formatWhen(iso: string): string {
   const d = new Date(iso);
@@ -21,6 +23,7 @@ function entryName(e: EntryRecord): string {
 }
 
 export default function TrashView() {
+  const router = useRouter();
   const [entries, setEntries] = useState<EntryRecord[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<{ id: string; kind: "restore" | "purge" } | null>(null);
@@ -107,6 +110,9 @@ export default function TrashView() {
       setEmptying(false);
     }
   }
+
+  // Esc: up to the Library.
+  useEscUp(() => router.push("/library"));
 
   return (
     <section className="flex flex-col gap-3">

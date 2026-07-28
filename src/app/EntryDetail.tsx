@@ -42,6 +42,8 @@ import {
   type PollState,
 } from "@/lib/post-save-poll";
 import { idbPendingStore } from "./idb-pending";
+import { openSelectPicker } from "./openSelectPicker";
+import { useEscUp } from "./useEscUp";
 import { useJournals } from "./useJournals";
 
 // Sentinel for the Move picker's "Unfiled" option — same idea as
@@ -350,6 +352,28 @@ export default function EntryDetail({ id }: { id: string }) {
   // Skeleton placeholder only while a post-save row hasn't landed yet.
   const showPlaceholder = entry === undefined && justSaved && polling;
 
+  // Esc goes "up": close whatever's open first, else back to this entry's
+  // journal (or Unfiled). Presses inside the edit form's inputs don't land
+  // here (useEscUp ignores editable targets), so Esc there needs one extra
+  // tab-out — acceptable.
+  useEscUp(() => {
+    if (editing) {
+      cancelEdit();
+      return;
+    }
+    if (movePickerOpen) {
+      setMovePickerOpen(false);
+      return;
+    }
+    router.push(
+      entry?.journalId
+        ? `/library/${entry.journalId}`
+        : entry
+          ? "/library/unfiled"
+          : "/library",
+    );
+  });
+
   return (
     <section className="flex flex-col gap-4">
       <div className="flex items-center justify-between gap-3">
@@ -558,6 +582,7 @@ export default function EntryDetail({ id }: { id: string }) {
               <div className="flex items-center gap-2 text-xs text-foreground/50">
                 <span>Move to</span>
                 <select
+                  ref={openSelectPicker}
                   defaultValue=""
                   disabled={moving}
                   onChange={(ev) => {

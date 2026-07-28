@@ -32,6 +32,7 @@ import EntryCard from "./EntryCard";
 import SelectionBar, { UNFILED_VALUE } from "./SelectionBar";
 import SelectModeToggle from "./SelectModeToggle";
 import { useBulkSelection } from "./useBulkSelection";
+import { useEscUp } from "./useEscUp";
 import { useJournals } from "./useJournals";
 
 type SortOption = "newest" | "reading";
@@ -233,6 +234,20 @@ export default function JournalView({ journalId }: { journalId: string }) {
   const allSelected = (entries?.length ?? 0) > 0 && bulk.selected.size === entries?.length;
   // Moving to the current journal is a no-op — exclude it from the target list.
   const moveTargets = journals?.filter((j) => j.id !== journalId) ?? null;
+
+  // Esc: close the manage panel first, then leave select mode, then up to
+  // the Library.
+  useEscUp(() => {
+    if (managing) {
+      toggleManage();
+      return;
+    }
+    if (bulk.selectMode) {
+      bulk.exitSelectMode();
+      return;
+    }
+    router.push("/library");
+  });
 
   return (
     <section className="flex flex-col gap-3">
