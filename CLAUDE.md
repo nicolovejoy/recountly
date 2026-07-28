@@ -49,6 +49,20 @@ gate across all three save paths, sticky pre-fill via `?pageLabel=` on the New-r
 no increment parsing). Conscious choices: suggestion follows effective-date order; Unfiled
 never saves a label. Migration applied to recountly-db (idempotent).
 
+**Shipped 2026-07-28 (same session, owner-driven UX round — PRs #59–#62):** create-journal
+tile on the Library overview (stays put + refreshes the list, no navigate); entry-detail
+action bar moved to the top under the title as visible pill buttons (✏️ Edit / 📁 Move… /
+🗑 Trash); **Esc goes up a level** everywhere (entry → its journal/Unfiled;
+journal/Unfiled/trash → Library; closes open manage panel/picker/select-mode first) via
+`useEscUp` + tested `isEditableTarget` guard — presses in inputs/selects and
+`defaultPrevented` ones (recorder's Esc-to-pause) are left alone; **one-click move
+pickers** (`openSelectPicker`: focus + `showPicker()`, also SelectionBar's Move button
+opens the dropdown when no target chosen); **SelectionBar is sticky** at viewport top in
+select mode (no more scrolling back up to Move/Trash a selection); TabBar active-tab
+indicator line + shadow. Filed **#63** (swipe between entries in the origin view's order);
+commented on **#35**: desktop top-nav at md+ is the plan for "bottom bar too far from
+content on big windows". 620 vitest tests.
+
 **Privacy discussion (2026-07-25, owner):** enrichment stays ON. Verified: Anthropic API
 standard retention ~7 days, structured outputs cache only the JSON schema (24h), no training;
 OpenAI API 30-day abuse window, Realtime audio transient. ZDR exists at both but is
@@ -338,6 +352,11 @@ tail merges on pause before the editor read; "listening" textarea affordance. Th
 - **Discuss Library grouping/badging by journal `kind`** (column + manage-panel select
   shipped in #57; grouping UI deliberately deferred). Related someday: journal archive
   (hide-not-delete) state.
+- **Desktop smoke of the 2026-07-28 UX round**: Esc-up chain, sticky SelectionBar +
+  one-click pickers in a long list, Library create tile, top action bar on entry pages.
+- **#35 next up** (has fresh scope note): mother-site style pass + top nav at md+ (bottom
+  tabs stay on phone). Then **#63** swipe/arrow entry-to-entry nav (wants #36's
+  URL-as-state).
 - **#35** mother-site style pass + desktop top-nav; **Node 22 + pnpm 10 chore** (before
   passkeys; verify Vercel runtime too).
 - Then: **#36** search increments → **#33** covers (+ thumb variant) → **#53** per-segment
