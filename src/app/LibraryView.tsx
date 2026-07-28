@@ -9,6 +9,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import type { JournalSummary } from "@/lib/journal";
 import { resolveJournalDateRange } from "@/lib/date-range";
 
@@ -27,8 +28,34 @@ function CoverSlot() {
 }
 
 export default function LibraryView() {
+  const router = useRouter();
   const [data, setData] = useState<Summaries | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [newLabel, setNewLabel] = useState("");
+  const [createBusy, setCreateBusy] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+
+  async function handleCreate(e: React.FormEvent) {
+    e.preventDefault();
+    const label = newLabel.trim();
+    if (!label || createBusy) return;
+    setCreateBusy(true);
+    setCreateError(null);
+    try {
+      const res = await fetch("/api/journals", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ label }),
+      });
+      if (!res.ok) throw new Error(`create failed (${res.status})`);
+      const { journal } = (await res.json()) as { journal: { id: string } };
+      router.push(`/library/${journal.id}`);
+    } catch (err) {
+      setCreateError(err instanceof Error ? err.message : String(err));
+      setCreateBusy(false);
+    }
+  }
 
   useEffect(() => {
     let alive = true;
@@ -82,6 +109,55 @@ export default function LibraryView() {
             </li>
           );
         })}
+        {data && (
+          <li>
+            {creating ? (
+              <form
+                onSubmit={handleCreate}
+                className="flex items-center gap-2 rounded-xl border border-dashed border-foreground/20 p-4"
+              >
+                <input
+                  autoFocus
+                  value={newLabel}
+                  onChange={(e) => setNewLabel(e.target.value)}
+                  placeholder="Journal name"
+                  disabled={createBusy}
+                  className="min-w-0 flex-1 rounded-md border border-foreground/15 bg-transparent px-2 py-1 text-sm"
+                />
+                <button
+                  type="submit"
+                  disabled={createBusy || !newLabel.trim()}
+                  className="text-sm text-foreground/70 disabled:opacity-40"
+                >
+                  {createBusy ? "Creating…" : "Create"}
+                </button>
+                <button
+                  type="button"
+                  disabled={createBusy}
+                  onClick={() => {
+                    setCreating(false);
+                    setNewLabel("");
+                    setCreateError(null);
+                  }}
+                  className="text-sm text-foreground/40"
+                >
+                  Cancel
+                </button>
+              </form>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setCreating(true)}
+                className="flex w-full items-center gap-3 rounded-xl border border-dashed border-foreground/20 p-4 text-sm text-foreground/60"
+              >
+                + New journal
+              </button>
+            )}
+            {createError && (
+              <p className="mt-1 text-xs text-red-500">Couldn’t create: {createError}</p>
+            )}
+          </li>
+        )}
         {data && (
           <li>
             <Link
