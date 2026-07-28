@@ -515,53 +515,14 @@ export default function EntryDetail({ id }: { id: string }) {
             </div>
           )}
 
-          {/* Transcript-first: full text, no clamp — this is the read view. */}
-          <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground/80">
-            {entry.transcript}
-          </p>
-
-          {entry.audioUrl && (
-            <audio
-              controls
-              preload="metadata"
-              src={entry.audioUrl}
-              className="w-full"
-              onPlay={(e) =>
-                pauseOthers(document.querySelectorAll("audio"), e.currentTarget)
-              }
-            >
-              <track kind="captions" />
-            </audio>
-          )}
-          {entry.audioUrl && entry.audioComplete === false && (
-            <p className="text-xs text-amber-600">
-              ⚠ Audio is partial — this entry was paused, so only the last segment was
-              recorded. The transcript is complete.
-            </p>
-          )}
-
-          {(photos?.length ?? 0) > 0 && (
-            <ul className="flex flex-wrap gap-2">
-              {photos?.map((p) => (
-                <li key={p.id}>
-                  {/* eslint-disable-next-line @next/next/no-img-element -- auth-gated same-origin proxy; next/image's optimizer can't fetch it */}
-                  <img
-                    src={`/api/photo/${p.id}`}
-                    alt="Journal page"
-                    loading="lazy"
-                    className="max-h-96 rounded-lg border border-foreground/10"
-                  />
-                </li>
-              ))}
-            </ul>
-          )}
-
-          <div className="flex flex-col gap-2 border-t border-foreground/10 pt-3">
+          {/* Action bar lives up top, under the title — owner request
+              2026-07-28 (was buried below transcript/audio/photos). */}
+          <div className="flex flex-col gap-2 border-b border-foreground/10 pb-3">
             <div className="flex items-center justify-between gap-3">
               <span className="text-xs tabular-nums text-foreground/50">
                 {formatElapsed(entry.durationSeconds)}
               </span>
-              <span className="flex shrink-0 items-baseline gap-2">
+              <span className="flex shrink-0 items-center gap-2">
                 {/* Hidden while the #54 post-save placeholder/poll is still
                     active — entering edit mode against a row that hasn't
                     fully landed (or whose poll could still update it) is
@@ -570,26 +531,26 @@ export default function EntryDetail({ id }: { id: string }) {
                   <button
                     type="button"
                     onClick={startEdit}
-                    className="text-xs text-foreground/40 hover:text-foreground/70"
+                    className="rounded-full border border-foreground/20 px-3 py-1 text-xs text-foreground/70 transition-colors hover:bg-foreground/[0.06]"
                   >
-                    Edit
+                    ✏️ Edit
                   </button>
                 )}
                 <button
                   type="button"
                   onClick={() => setMovePickerOpen((open) => !open)}
                   disabled={moving}
-                  className="text-xs text-foreground/40 hover:text-foreground/70 disabled:opacity-50"
+                  className="rounded-full border border-foreground/20 px-3 py-1 text-xs text-foreground/70 transition-colors hover:bg-foreground/[0.06] disabled:opacity-50"
                 >
-                  {moving ? "Moving…" : "Move…"}
+                  {moving ? "Moving…" : "📁 Move…"}
                 </button>
                 <button
                   type="button"
                   onClick={handleDelete}
                   disabled={trashing}
-                  className="text-xs text-foreground/40 hover:text-red-500 disabled:opacity-50"
+                  className="rounded-full border border-foreground/20 px-3 py-1 text-xs text-foreground/70 transition-colors hover:border-red-300 hover:text-red-500 disabled:opacity-50"
                 >
-                  {trashing ? "Trashing…" : "Trash"}
+                  {trashing ? "Trashing…" : "🗑 Trash"}
                 </button>
               </span>
             </div>
@@ -635,6 +596,48 @@ export default function EntryDetail({ id }: { id: string }) {
               <p className="text-sm text-red-500">Couldn’t trash entry: {trashError}</p>
             )}
           </div>
+
+          {/* Transcript-first: full text, no clamp — this is the read view. */}
+          <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground/80">
+            {entry.transcript}
+          </p>
+
+          {entry.audioUrl && (
+            <audio
+              controls
+              preload="metadata"
+              src={entry.audioUrl}
+              className="w-full"
+              onPlay={(e) =>
+                pauseOthers(document.querySelectorAll("audio"), e.currentTarget)
+              }
+            >
+              <track kind="captions" />
+            </audio>
+          )}
+          {entry.audioUrl && entry.audioComplete === false && (
+            <p className="text-xs text-amber-600">
+              ⚠ Audio is partial — this entry was paused, so only the last segment was
+              recorded. The transcript is complete.
+            </p>
+          )}
+
+          {(photos?.length ?? 0) > 0 && (
+            <ul className="flex flex-wrap gap-2">
+              {photos?.map((p) => (
+                <li key={p.id}>
+                  {/* eslint-disable-next-line @next/next/no-img-element -- auth-gated same-origin proxy; next/image's optimizer can't fetch it */}
+                  <img
+                    src={`/api/photo/${p.id}`}
+                    alt="Journal page"
+                    loading="lazy"
+                    className="max-h-96 rounded-lg border border-foreground/10"
+                  />
+                </li>
+              ))}
+            </ul>
+          )}
+
         </>
       )}
     </section>
