@@ -42,6 +42,11 @@ export default function EntryList({
     return m;
   }, [journals]);
 
+  // Snippet windowing/highlighting only kicks in for the free-text query
+  // itself (not date/journal filters alone) — those don't imply a "word being
+  // searched for" to center on.
+  const activeQuery = debouncedQuery.trim() || undefined;
+
   // Debounce the free-text box so we don't fire a request per keystroke.
   useEffect(() => {
     const t = setTimeout(() => setDebouncedQuery(query), 300);
@@ -124,6 +129,7 @@ export default function EntryList({
               e.journalId ? (journalLabel.get(e.journalId) ?? "journal") : null
             }
             journals={journals}
+            query={activeQuery}
             onTrashed={(id) =>
               setEntries((prev) => prev?.filter((x) => x.id !== id) ?? prev)
             }

@@ -20,12 +20,13 @@
 // this card) the tap target is inert instead of a Link: selection already has
 // its own control, and navigating away mid-select would be surprising.
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { pauseOthers } from "@/lib/audio-exclusive";
 import { useConfirm } from "./ConfirmDialog";
 import { openSelectPicker } from "./openSelectPicker";
 import { formatElapsed } from "@/lib/elapsed";
+import { buildSearchSnippet, type SnippetSegment } from "@/lib/search-snippet";
 import type { EntryRecord } from "@/lib/entry";
 import type { PhotoRecord } from "@/lib/photo";
 
@@ -38,22 +39,71 @@ function formatWhen(iso: string): string {
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
 }
 
+// Renders buildSearchSnippet's structured segments — never an HTML string, so
+// no dangerouslySetInnerHTML. Amber, not the green accent: accent discipline
+// from the #64 overhaul reserves green for active-tab/primary/focus; amber is
+// already the app's "attention" color (see the partial-audio note below).
+function HighlightedText({ segments }: { segments: SnippetSegment[] }) {
+  return (
+    <>
+      {segments.map((seg, i) =>
+        seg.match ? (
+          <mark key={i} className="rounded-[2px] bg-amber-500/25 px-0.5 text-foreground">
+            {seg.text}
+          </mark>
+        ) : (
+          <span key={i}>{seg.text}</span>
+        ),
+      )}
+    </>
+  );
+}
+
 // The card body: title/date/journal chip/summary/tags/clamped transcript +
 // up to 3 photo thumbnails. Extracted so the two tap-target wrappers below
-// (Link vs. inert div) don't duplicate the markup.
+// (Link vs. inert div) don't duplicate the markup. `query`, when a search is
+// active, windows the transcript preview around the first match instead of
+// always showing the top, highlights matches, and shows a muted "(1 of N)"
+// count when there's more than one hit in the transcript.
 function EntryCardBody({
   e,
   journalLabel,
   thumbs,
+  query,
 }: {
   e: EntryRecord;
   journalLabel: string | null;
   thumbs: PhotoRecord[];
+  query?: string;
 }) {
+  // Memoized so an unrelated re-render (e.g. a sibling card's trash/move,
+  // which bumps EntryList's entries array) doesn't re-scan every transcript.
+  // contextChars = title length so a title never gets windowed/ellipsized —
+  // just highlighted in place.
+  const titleSnippet = useMemo(
+    () =>
+      query && e.title
+        ? buildSearchSnippet(e.title, query, { contextChars: e.title.length })
+        : null,
+    [e.title, query],
+  );
+  const transcriptSnippet = useMemo(
+    () => (query ? buildSearchSnippet(e.transcript, query) : null),
+    [e.transcript, query],
+  );
+
   return (
     <div className="flex flex-col gap-2">
       <span className="text-sm font-medium text-foreground">
-        {e.title ?? formatWhen(e.recordedAt)}
+        {e.title ? (
+          titleSnippet ? (
+            <HighlightedText segments={titleSnippet.segments} />
+          ) : (
+            e.title
+          )
+        ) : (
+          formatWhen(e.recordedAt)
+        )}
       </span>
       {e.title && (
         <span className="text-xs text-muted">{formatWhen(e.recordedAt)}</span>
@@ -89,8 +139,17 @@ function EntryCardBody({
         </ul>
       )}
       <p className="line-clamp-3 whitespace-pre-wrap text-sm leading-relaxed text-body">
-        {e.transcript}
+        {transcriptSnippet ? (
+          <HighlightedText segments={transcriptSnippet.segments} />
+        ) : (
+          e.transcript
+        )}
       </p>
+      {transcriptSnippet && transcriptSnippet.matchCount > 1 && (
+        <span className="text-xs text-muted">
+          ({transcriptSnippet.shownIndex} of {transcriptSnippet.matchCount})
+        </span>
+      )}
       {thumbs.length > 0 && (
         <ul className="flex flex-wrap gap-1.5">
           {thumbs.map((p) => (
@@ -117,6 +176,7 @@ export default function EntryCard({
   onTrashed,
   onMoved,
   selectMode = false,
+  query,
 }: {
   entry: EntryRecord;
   journalLabel: string | null; // null hides the journal chip
@@ -126,6 +186,10 @@ export default function EntryCard({
   // Issue #40's select mode: the checkbox lives in the parent (sibling to
   // this card); while true, the card body doesn't navigate.
   selectMode?: boolean;
+  // The active free-text search query, when one is active — optional so every
+  // non-search usage of this card (journal view, Unfiled, trash) is untouched.
+  // Windows the transcript preview around the first match + highlights hits.
+  query?: string;
 }) {
   // Collapsed-card thumbnails, up to 3, fetched once on mount ONLY when the
   // entry has photos (photoCount comes from the list/search queries). One
@@ -206,10 +270,10 @@ export default function EntryCard({
   return (
     <li className="flex flex-col gap-2 rounded-xl border border-hairline bg-surface p-4">
       {selectMode ? (
-        <EntryCardBody e={e} journalLabel={journalLabel} thumbs={thumbs} />
+        <EntryCardBody e={e} journalLabel={journalLabel} thumbs={thumbs} query={query} />
       ) : (
         <Link href={`/entry/${e.id}`} className="block">
-          <EntryCardBody e={e} journalLabel={journalLabel} thumbs={thumbs} />
+          <EntryCardBody e={e} journalLabel={journalLabel} thumbs={thumbs} query={query} />
         </Link>
       )}
 
