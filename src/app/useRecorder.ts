@@ -28,6 +28,7 @@ import { totalElapsedSec, bankSegment } from "@/lib/elapsed";
 import { parseRealtimeEvent, type RealtimeEvent } from "@/lib/realtime-events";
 import { transition, type RecorderStatus, type RecorderEvent } from "@/lib/recorder-state";
 import { pickAudioMimeType } from "@/lib/audio";
+import { startDoneFlush, resolveTail, type DoneFlushController } from "@/lib/done-flush";
 import fixWebmDuration from "fix-webm-duration";
 
 const OPENAI_CALLS_URL = "https://api.openai.com/v1/realtime/calls";
@@ -50,6 +51,12 @@ export interface RecordingResult {
   // mid-recording (each resume starts a fresh recorder, so only the last segment
   // survives). null when there's no audio.
   audioComplete: boolean | null;
+  // #69: the final segment's transcript, resolved AFTER the bounded
+  // wait-for-commit (the authoritative `completed` for Done's manual commit, or
+  // the interim fallback on timeout/empty). The caller appends this to the base
+  // transcript it snapshotted at Done — see RecorderClient.onStop. Empty string
+  // when there was no tail (e.g. Done right after a VAD commit with nothing new).
+  tailTranscript: string;
 }
 
 export interface Recorder {
@@ -120,6 +127,11 @@ export function useRecorder(opts: {
   // The deferred body scheduled alongside flushTimerRef (set by pause() or
   // stop()) — forceFlush runs this immediately instead of waiting FLUSH_MS.
   const pendingFlushFnRef = useRef<(() => void) | null>(null);
+  // #69: the in-flight Done wait-for-commit orchestrator (set by stop(), cleared
+  // once it settles). handleEvent feeds it the manual commit's `completed` /
+  // benign empty-buffer signal; closeConnection settles it if start/resume/pause
+  // supersedes a pending Done.
+  const doneFlushRef = useRef<DoneFlushController | null>(null);
   // Cumulative recording time (see totalElapsedSec): accumulatedMsRef banks
   // finished segments (always 0 until pause/resume lands); segmentStartRef is
   // the running segment's start, or null when not live.
@@ -154,6 +166,13 @@ export function useRecorder(opts: {
   // KEEPING the banked time (pause = closeConnection + bank elapsed; full stop
   // = both halves).
   const closeConnection = useCallback(() => {
+    // #69: abort a pending Done wait-for-commit if a fresh start/resume/pause (or
+    // a connect failure) tears the pc down first — settleNow resolves its promise
+    // so the timer is freed; the stop() continuation guards on doneFlushRef
+    // identity, so a superseded flush never fires onStop. In the real app Done
+    // navigates away immediately, so this only guards the edge cases.
+    doneFlushRef.current?.settleNow();
+    doneFlushRef.current = null;
     if (flushTimerRef.current != null) clearTimeout(flushTimerRef.current);
     flushTimerRef.current = null;
     pendingFlushFnRef.current = null;
@@ -213,6 +232,10 @@ export function useRecorder(opts: {
         pushLog(event.type, event.transcript);
         onSegmentRef.current(event.transcript);
         setInterim("");
+        // #69: this is the authoritative tail of Done's manual commit — hand it
+        // to the pending Done wait so the save appends it (instead of the lagging
+        // interim). No-op outside a Done window (doneFlushRef null).
+        doneFlushRef.current?.completed(event.transcript);
         break;
       // Surface the reason so a failed segment isn't a silent dead-end.
       case "conversation.item.input_audio_transcription.failed":
@@ -224,6 +247,10 @@ export function useRecorder(opts: {
         // but don't alarm the user with a failure banner.
         const code = event.error?.code ?? "";
         const benignEmptyCommit = code.includes("buffer") && code.includes("empty");
+        // #69: an empty-buffer commit means Done's manual commit had no tail to
+        // transcribe — settle the wait now (fast path) so the save doesn't sit
+        // out the full bound; the caller falls back to the (empty) interim.
+        if (benignEmptyCommit) doneFlushRef.current?.emptyCommit();
         if (errText && !benignEmptyCommit) setErrorMsg(`transcription failed: ${errText}`);
         break;
       }
@@ -453,19 +480,22 @@ export function useRecorder(opts: {
 
   const stop = useCallback(() => {
     genRef.current += 1; // invalidate any in-flight connect so it stops touching the pc
-    // Force-finalize the buffered tail, then hold the connection open briefly so
-    // its completed transcript (and any segments still being transcribed) can
-    // land before teardown — the same flush rationale as pause. Closing
-    // immediately, as this used to, dropped everything said since the last VAD
-    // commit.
+    // Force-finalize the buffered tail; its authoritative `completed` lands
+    // asynchronously over the data channel, so we hold the pc open and wait for
+    // it (bounded) below — #69. Closing immediately dropped everything said
+    // since the last VAD commit; snapshotting the transcript synchronously at
+    // Done (#54) then dropped the tail of a long continuous take (the interim
+    // deltas lag a long uncommitted buffer), which this wait restores.
     commitBuffer();
     setStatus((s) => transition(s, "DONE"));
-    // Deliver the not-yet-finalized tail now, before teardown, so it lands in
-    // the editor (and the saved transcript) instead of vanishing if teardown
-    // beats the real `completed` event. Tradeoff: if `completed` still arrives
-    // during the FLUSH_MS window below, the tail can double-append — accepted
-    // for v1 (losing speech is worse than a duplicated tail); dedup deferred.
-    if (interimRef.current) onSegmentRef.current(interimRef.current);
+    // The best-available tail if no authoritative `completed` lands (a stall, or
+    // an empty commit): the accumulated interim. Captured before we clear it.
+    // Still merged into the editor now (as before) so RecorderClient can read the
+    // base+interim "best available at Done" for its empty-guard and the pre-nav
+    // durability record; the FINAL saved tail is resolved below and delivered via
+    // onStop's RecordingResult, superseding the interim when `completed` arrives.
+    const interimFallback = interimRef.current;
+    if (interimFallback) onSegmentRef.current(interimFallback);
     setInterim("");
     // Snapshot the final duration before resetTimer zeroes it.
     const durationSeconds = totalElapsedSec(
@@ -478,9 +508,8 @@ export function useRecorder(opts: {
     const wasPaused = accumulatedMsRef.current > 0;
     // Kick off audio finalization now — finalizeRecording calls recorder.stop()
     // synchronously here, before the mic tracks are cut below, so the tail chunk
-    // flushes cleanly. We deliberately do NOT save yet: the last spoken segment's
-    // transcript only lands during the FLUSH_MS window, and the caller's onStop
-    // reads the editor — so the save must wait until that window closes (below).
+    // flushes cleanly. The save is delivered once BOTH the audio and the tail
+    // transcription resolve (below).
     const audioPromise = finalizeRecording();
     // Freeze timer + meter and cut the mic now; defer the connection teardown.
     if (timerRef.current != null) clearInterval(timerRef.current);
@@ -490,22 +519,40 @@ export function useRecorder(opts: {
     streamRef.current?.getTracks().forEach((t) => t.stop());
     resetTimer();
     if (flushTimerRef.current != null) clearTimeout(flushTimerRef.current);
-    const runStopFlush = () => {
-      flushTimerRef.current = null;
+    flushTimerRef.current = null;
+
+    // #69: bounded wait-for-commit-completion. handleEvent feeds this controller
+    // the manual commit's authoritative `completed` (or a benign empty-commit
+    // signal); the DONE_TAIL_WAIT_MS bound backstops a stall. On any non-completed
+    // outcome we fall back to interimFallback — today's behavior — so a stalled or
+    // empty session still saves promptly instead of hanging.
+    const flush = startDoneFlush<ReturnType<typeof setTimeout>>({
+      set: (fn, ms) => setTimeout(fn, ms),
+      clear: (h) => clearTimeout(h),
+    });
+    doneFlushRef.current = flush;
+    // forceFlush (lifecycle/background) settles the wait immediately with the
+    // fallback — a backgrounded tab can't keep the pc alive to await the tail.
+    pendingFlushFnRef.current = () => flush.settleNow();
+    void flush.promise.then((outcome) => {
+      // Guard on identity: closeConnection (start/resume/pause superseding a
+      // pending Done) settles this promise then nulls the ref, so a superseded
+      // flush must not fire onStop for the abandoned entry.
+      if (doneFlushRef.current !== flush) return;
+      doneFlushRef.current = null;
       pendingFlushFnRef.current = null;
       closeConnection();
-      // The transcript tail has landed by now — hand the complete result over.
+      const tailTranscript = resolveTail(outcome, interimFallback);
       void audioPromise.then((audio) => {
         onStopRef.current?.({
           durationSeconds,
           audioBlob: audio?.blob ?? null,
           audioMime: audio?.mime ?? null,
           audioComplete: audio?.blob ? !wasPaused : null,
+          tailTranscript,
         });
       });
-    };
-    pendingFlushFnRef.current = runStopFlush;
-    flushTimerRef.current = setTimeout(runStopFlush, FLUSH_MS);
+    });
   }, [commitBuffer, closeConnection, resetTimer, finalizeRecording]);
 
   // Issue #23 Task 8: a pagehide/visibilitychange-hidden event can't trust a
@@ -514,12 +561,17 @@ export function useRecorder(opts: {
   // pause/stop flush is currently waiting out FLUSH_MS right now instead.
   // No-op when nothing is pending (e.g. status is idle, or a flush already ran).
   const forceFlush = useCallback(() => {
-    if (flushTimerRef.current == null) return;
-    clearTimeout(flushTimerRef.current);
-    flushTimerRef.current = null;
+    // Guard on the pending fn, not flushTimerRef: pause() schedules both, but the
+    // #69 Done wait owns its own timer inside the controller and leaves
+    // flushTimerRef null — so checking the timer would make forceFlush a no-op
+    // for a Done in flight. The fn is set whenever a flush (pause OR Done) is
+    // pending; running it settles that flush immediately.
     const fn = pendingFlushFnRef.current;
+    if (fn == null) return;
+    if (flushTimerRef.current != null) clearTimeout(flushTimerRef.current);
+    flushTimerRef.current = null;
     pendingFlushFnRef.current = null;
-    fn?.();
+    fn();
   }, []);
 
   return {
