@@ -53,7 +53,7 @@ function LoginForm() {
           placeholder="Email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
-          className="rounded-lg border border-foreground/15 bg-transparent p-3 outline-none focus:border-foreground/40"
+          className="rounded-lg border border-hairline bg-transparent p-3 outline-none focus:border-hairline-strong focus-visible:ring-1 focus-visible:ring-accent"
         />
         <input
           type="password"
@@ -62,13 +62,13 @@ function LoginForm() {
           placeholder="Password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          className="rounded-lg border border-foreground/15 bg-transparent p-3 outline-none focus:border-foreground/40"
+          className="rounded-lg border border-hairline bg-transparent p-3 outline-none focus:border-hairline-strong focus-visible:ring-1 focus-visible:ring-accent"
         />
         {error && <p className="text-sm text-red-500">{error}</p>}
         <button
           type="submit"
           disabled={busy}
-          className="rounded-lg bg-foreground/90 p-3 font-medium text-background transition-opacity hover:opacity-90 disabled:opacity-50"
+          className="rounded-lg bg-accent-strong p-3 font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
         >
           {busy ? "Signing in…" : "Sign in"}
         </button>

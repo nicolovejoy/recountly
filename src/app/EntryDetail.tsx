@@ -628,8 +628,11 @@ export default function EntryDetail({ id }: { id: string }) {
             )}
           </div>
 
-          {/* Transcript-first: full text, no clamp — this is the read view. */}
-          <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground/80">
+          {/* Transcript-first: full text, no clamp — this is the read view.
+              Serif for long-form reading (Task 6, #64/#35) — the one place
+              in the app where prose is actually read; everything else stays
+              Geist Sans. */}
+          <p className="whitespace-pre-wrap font-serif text-sm leading-relaxed text-foreground/80">
             {entry.transcript}
           </p>
 
