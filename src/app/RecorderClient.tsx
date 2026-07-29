@@ -18,6 +18,7 @@ import { downscalePhoto } from "@/lib/image";
 import { writtenAtIso } from "@/lib/written-at";
 import { suggestNextPageLabel, savedPageLabel } from "@/lib/page-label";
 import { planSave } from "@/lib/save-plan";
+import { appendSegment } from "@/lib/transcript";
 import { idbPendingStore } from "./idb-pending";
 import { useRecorder, type RecordingResult } from "./useRecorder";
 import { useJournals } from "./useJournals";
@@ -154,9 +155,15 @@ export default function RecorderClient() {
   // save needs into this ref (which outlives the unmount via onStop's stable
   // closure); onStop reads ONLY from here and touches no component state, so
   // there's no setState-after-unmount. Cleared once onStop consumes it.
+  // #69: `baseTranscript` is the editor value read at Done BEFORE the tail is
+  // known — all previously-finalized segments + the user's typed text, WITHOUT
+  // the current in-flight tail. onStop appends the resolved tail
+  // (result.tailTranscript — the authoritative `completed` for Done's manual
+  // commit, or the interim fallback on timeout) to it, so the saved transcript
+  // includes the tail instead of being snapshotted short at the Done instant.
   const finalSaveSnapshotRef = useRef<{
     id: string;
-    transcript: string;
+    baseTranscript: string;
     journalId: string | undefined;
     writtenAt: string | undefined;
     pageLabel: string | undefined;
@@ -181,7 +188,12 @@ export default function RecorderClient() {
     const snapshot = finalSaveSnapshotRef.current;
     if (!snapshot) return;
     finalSaveSnapshotRef.current = null;
-    const { id, transcript, journalId, writtenAt, pageLabel, photos } = snapshot;
+    const { id, baseTranscript, journalId, writtenAt, pageLabel, photos } = snapshot;
+    // #69: compose the final transcript now that the tail has resolved. The tail
+    // is the authoritative `completed` for Done's manual commit (or the interim
+    // fallback on timeout/empty) — appended to the base via the tested helper,
+    // never a double-append (resolveTail drops the interim when `completed` won).
+    const transcript = appendSegment(baseTranscript, result.tailTranscript).trim();
 
     const audio = result.audioBlob
       ? {
@@ -309,18 +321,29 @@ export default function RecorderClient() {
 
   // Issue #54: Done ends the session, then navigates to the entry's detail
   // page IMMEDIATELY — the placeholder + poll loop there shows save/enrichment
-  // progress instead of the old on-Capture "Saving…"→"Saved ✓" toast. stop()
-  // merges the interim tail into the editor synchronously (see useRecorder), so
-  // the transcript is complete the instant it returns; the real save runs later
-  // from onStop off the snapshot below. An empty transcript stays on Capture
-  // with the loud error toast (no navigation, no entry).
+  // progress instead of the old on-Capture "Saving…"→"Saved ✓" toast. The real
+  // save runs later from onStop off the snapshot below. #69: navigation stays
+  // instant, but the saved transcript is composed in onStop AFTER stop()'s
+  // bounded wait-for-commit resolves the authoritative tail — so a long
+  // continuous take's back half is no longer snapshotted-short at the Done
+  // instant. The detail page's 30s poll comfortably covers that wait. An empty
+  // transcript stays on Capture with the loud error toast (no nav, no entry).
   const handleDone = useCallback(async () => {
     // Snapshot the duration before stop() zeroes elapsedSec (kept for the
     // lifecycle flush, and harmless here).
     pendingDurationRef.current = elapsedSec;
+    // #69: read the "base" transcript BEFORE stop() — all finalized segments +
+    // the user's typed text, WITHOUT the still-in-flight tail (which lives in the
+    // separate interim <p>, not the textarea). onStop appends the resolved tail
+    // to this base once the bounded wait-for-commit settles.
+    const base = editorRef.current?.getValue() ?? "";
     stop();
-    const transcript = editorRef.current?.getValue().trim() ?? "";
-    if (planSave(transcript).kind === "empty") {
+    // After stop() merges the interim tail into the editor, this is the
+    // best-available transcript AT Done (base + interim, a lagging prefix of the
+    // real tail) — used for the empty-guard and the pre-nav durability record.
+    // onStop later re-writes the record with base + the authoritative tail.
+    const bestAvailable = (editorRef.current?.getValue() ?? "").trim();
+    if (planSave(bestAvailable).kind === "empty") {
       setSaveError(
         "Nothing to save — the transcript was empty when the session ended. Any attached photos are still here; record or dictate again and they'll be included.",
       );
@@ -335,7 +358,7 @@ export default function RecorderClient() {
     const photos = pendingPhotos.map((p) => ({ id: ulid(), blob: p.blob, mime: p.mime }));
     finalSaveSnapshotRef.current = {
       id,
-      transcript,
+      baseTranscript: base,
       journalId,
       writtenAt,
       pageLabel: savedLabel,
@@ -355,7 +378,7 @@ export default function RecorderClient() {
         id,
         body: buildSaveBody({
           id,
-          transcript,
+          transcript: bestAvailable,
           durationSeconds: pendingDurationRef.current,
           journalId,
           writtenAt,
