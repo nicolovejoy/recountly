@@ -83,8 +83,11 @@ sharing infra (future: export one entry as static HTML).
 - GitHub issues #33, #35-remainder, #36-remainder, #53, #63, #71 and the Node-22/24 bump +
   passkeys plans are **obsoleted or parked** by this pivot (#53/#71 solved structurally by
   the architecture). Leave open with a pointer comment until teardown; don't mass-close yet.
-- The repo question (new repo vs. this one) + Xcode project/bundle-id naming = first
-  decisions of the next session, before scaffolding.
+- ~~The repo question + naming~~ DECIDED 2026-07-29: app **Raconte** (French "tell!";
+  *recount* ← *raconter*), repo **github.com/nicolovejoy/raconte**, bundle id
+  `org.recountly.raconte`. Scaffolded same day (XcodeGen, multiplatform target, CI);
+  the four design docs (M1 capture, data model + migration, SDK recon, paranoid tests)
+  live in that repo under `docs/`.
 
 ## Next session (fresh context)
 
