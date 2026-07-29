@@ -2,7 +2,39 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Project status: 2026-07-27 — page_label (PR #56), journal management (PR #57), entry metadata editing (PR #58) all MERGED + DB migrated. Live on recountly.org, auth-gated. Capture/Library/Search tabs, journals (rename/delete/dates/kind), trash, FTS over title+notes+location+transcript, move + audit log, per-entry pages with post-save metadata editing. 616 vitest tests. Design of record: `docs/organization-and-navigation.md`.
+## Project status: 2026-07-28 — #64 design overhaul + #35 desktop top-nav SHIPPED (PR #65, prod); preview.recountly.org live; font-bump round PR #67 awaiting owner smoke.
+
+**Shipped 2026-07-28 late (style session, 5-stage subagent pipeline — plan:
+`docs/superpowers/plans/2026-07-28-design-overhaul-and-topnav.md`, owner decisions recorded
+there):** PR #65 merged: token layer in `globals.css` (dark-first, all pairings WCAG AA;
+`--surface`/`--surface-raised`/`--body`/`--muted`/`--hairline(-strong)`/`--accent(-strong)`/
+`--danger` + `@theme inline`), legibility sweep across 21 components (`/40–/70` opacities →
+tokens; accent green ONLY at active tab / primary buttons / focus rings; primary buttons
+`bg-accent-strong`+white — green-500+white fails AA), `<ConfirmDialog>`+`useConfirm` replacing
+all 7 `window.confirm` (⚠️ Esc handled in CAPTURE phase with `preventDefault` so bubble-phase
+`useEscUp` doesn't also navigate up; default focus Cancel; pure `confirm-controller`/
+`focus-trap` tested), manage-panel "Old journal (paper archive)" checkbox (wire value still
+`archive`/null) + started/ended prefill from first/last entry dates (tz-safe `isoToDateInput`),
+Library archive "paper" chip (owner picked badge-only), TopNav at md+ (thin sibling of TabBar
+over `tabs.ts`; TabBar `md:hidden`; sticky blurred header), Newsreader serif on entry-detail
+transcript only. Review caught a real regression: sticky SelectionBar hidden behind the new
+sticky header (z/top collision) — fixed. 638 tests. **PR #67 (UNMERGED, staged on `preview`):**
+type scale +21–25% small / +8–12.5% large via Tailwind 4 `--text-*` `@theme` overrides,
+TopNav full-pill hit areas + hover bg, build-stamp hover reveals "last build:". Parked:
+~15 `text-red-500` error sites not tokenized to `--danger` (mechanical sweep would recolor
+the deliberate REC-red recording affordances).
+
+**Preview flow (NEW, 2026-07-28):** https://preview.recountly.org = stable preview domain →
+Vercel domain assigned to git branch **`preview`**; smoke any PR via
+`git push origin <branch>:preview --force`. Enabled by: trustedOrigins + preview.recountly.org
+(PR #66), Cloudflare CNAME `preview` → `53a899fb13a1b666.vercel-dns-016.com` (**DNS only**,
+proxy off), and Preview-scoped `BETTER_AUTH_SECRET`/`BETTER_AUTH_URL` env vars (⚠️ they were
+Production-only — THAT was why preview sign-in always failed; also ⚠️ env vars only apply to
+deployments built after saving). Random `*.vercel.app` preview URLs stay login-broken by
+design (untrusted origin). ⚠️ Previews share the prod DB + blob store — preview smokes write
+real entries.
+
+## Previous status: 2026-07-27 — page_label (PR #56), journal management (PR #57), entry metadata editing (PR #58) all MERGED + DB migrated. Live on recountly.org, auth-gated. Capture/Library/Search tabs, journals (rename/delete/dates/kind), trash, FTS over title+notes+location+transcript, move + audit log, per-entry pages with post-save metadata editing. 616 vitest tests. Design of record: `docs/organization-and-navigation.md`.
 
 **Shipped 2026-07-27 (one session, subagent plan/implement/review cycles):** PR #56 merged
 after a clean review (noted, parked: label-requires-journal is client-gated only; moves keep
@@ -342,24 +374,25 @@ tail merges on pause before the editor read; "listening" textarea affordance. Th
 **#53** per-segment audio (`entry_audio` child table — the one open schema question),
 **#54** instant post-save nav with cycling placeholder + honest failure notes.
 
-**Next Steps — phased roadmap (owner-reviewed 2026-07-28).** Desktop smoke of #56–#62
-PASSED 8/8 (owner) — functional layer solid; every complaint was readability/style, now
-captured in **#64**. #39 closed on that smoke; #38 stays open pending the phone pass.
+**Next Steps — phased roadmap (owner-reviewed 2026-07-28; Phase 1 SHIPPED same night).**
+#38 stays open pending the phone pass. #39 closed on the desktop smoke.
 
-- **Phase 0 — phone smoke (start of next session, on the iPhone/PWA):** #52 continuous
-  capture (background mid-recording → paused not saved → record resumes SAME entry); #54
-  (Done → instant nav → cycling placeholder → enrichment pops in; airplane Done → amber
-  note → reopen recovers); page_label (label → chip → New-recording pre-fill); quick phone
-  pass of journal manage + entry Edit. Close #38 on pass.
-- **Phase 1 — style session: #64 + #35 together.** #64 = design-system overhaul (dark-mode
-  contrast: /40–50 text too dim; --surface/--surface-raised tokens so panels read distinct
-  from cards; ONE accent color used sparingly — REC-lamp green; own `<ConfirmDialog>`
-  replacing every `window.confirm`; "kind" select → "Old journal (paper archive)" toggle;
-  started/ended inputs prefill from computed first/last entry dates). #35 = mother-site
-  alignment + **top nav at md+** (bottom tabs stay on phone). Decide Library
-  grouping/badging by `kind` during this session.
-- **Phase 2 — platform chore:** Node 22 + pnpm 10 bump (prereq for passkeys; verify the
-  Vercel runtime too).
+- **First: merge PR #67** (font bump + nav pills) after owner smokes it at
+  https://preview.recountly.org (staged there; sign-in was being verified at handoff after
+  the env-var redeploy).
+- **Phase 0 — phone smoke (on the iPhone/PWA):** #52 continuous capture (background
+  mid-recording → paused not saved → record resumes SAME entry); #54 (Done → instant nav →
+  cycling placeholder → enrichment pops in; airplane Done → amber note → reopen recovers);
+  page_label (label → chip → New-recording pre-fill); quick pass of journal manage + entry
+  Edit; NEW styling on phone (type sizes, contrast). Close #38 on pass.
+- **Phase 2 — platform chore: Node bump + pnpm 10.** Recon done (2026-07-28, in session
+  history): no dep blocks it; nvm has 22.14.0 installed; ⚠️ Vercel prod already builds on
+  **Node 24** (nothing pins it — repo has no engines field), so owner must pick **24
+  everywhere (recommended)** vs 22 — DECISION STILL OPEN. Edits enumerated: package.json
+  engines + `packageManager: pnpm@10.9.0` + `@types/node`, ci.yml node/pnpm versions,
+  README/CLAUDE.md notes, Vercel dashboard Node setting; pnpm-10 build-script gating hits
+  unused `better-sqlite3`/`sharp` only (warning, harmless); also pin `packageManager` in
+  ~/src/garm (only other pnpm repo) so the corepack default flip can't drift its lockfile.
 - **Phase 3 — navigation & search:** #36 (filters in URL, match highlighting) THEN #63
   swipe/arrow entry-to-entry — #63 needs #36's URL-as-state to know the view's order;
   sequencing is load-bearing.
