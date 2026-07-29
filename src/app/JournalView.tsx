@@ -27,7 +27,7 @@ import Link from "next/link";
 import type { EntryRecord } from "@/lib/entry";
 import type { JournalSummary, JournalUpdate } from "@/lib/journal";
 import { buildSearchQueryString } from "@/lib/search";
-import { resolveJournalDateRange } from "@/lib/date-range";
+import { isoToDateInput, resolveJournalDateRange } from "@/lib/date-range";
 import { useConfirm } from "./ConfirmDialog";
 import EntryCard from "./EntryCard";
 import SelectionBar, { UNFILED_VALUE } from "./SelectionBar";
@@ -46,13 +46,17 @@ interface ManageForm {
   endedOn: string;
 }
 
+// Started/ended prefill from the computed first/last entry dates is a
+// suggestion, not a value: it only fills in when the journal has no stored
+// startedOn/endedOn of its own, and it happens once — here, on panel open —
+// never re-derived while the form is open, so it can't clobber an edit.
 function toManageForm(s: JournalSummary): ManageForm {
   return {
     label: s.label,
     notes: s.notes ?? "",
     kind: s.kind === "archive" ? "archive" : "",
-    startedOn: s.startedOn ?? "",
-    endedOn: s.endedOn ?? "",
+    startedOn: s.startedOn ?? isoToDateInput(s.firstEntryAt),
+    endedOn: s.endedOn ?? isoToDateInput(s.lastEntryAt),
   };
 }
 
@@ -335,16 +339,14 @@ export default function JournalView({ journalId }: { journalId: string }) {
               className="rounded-lg border border-hairline bg-transparent px-2 py-1 text-sm text-foreground outline-none focus:border-hairline-strong focus-visible:ring-1 focus-visible:ring-accent"
             />
           </label>
-          <label className="flex flex-col gap-1 text-xs text-body">
-            <span>Kind</span>
-            <select
-              value={form.kind}
-              onChange={(e) => setForm({ ...form, kind: e.target.value as "" | "archive" })}
-              className="rounded-lg border border-hairline bg-transparent px-2 py-1 text-sm text-foreground outline-none focus:border-hairline-strong focus-visible:ring-1 focus-visible:ring-accent"
-            >
-              <option value="">—</option>
-              <option value="archive">Archive</option>
-            </select>
+          <label className="flex items-center gap-2 text-xs text-body">
+            <input
+              type="checkbox"
+              checked={form.kind === "archive"}
+              onChange={(e) => setForm({ ...form, kind: e.target.checked ? "archive" : "" })}
+              className="focus-visible:ring-1 focus-visible:ring-accent"
+            />
+            <span>Old journal (paper archive)</span>
           </label>
           <div className="flex gap-2">
             <label className="flex flex-1 flex-col gap-1 text-xs text-body">

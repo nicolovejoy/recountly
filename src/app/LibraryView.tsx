@@ -6,6 +6,11 @@
 // /library/unfiled or Library would be a dead end for them. One fetch of
 // GET /api/journals/summaries feeds the whole page; refetches on mount each
 // visit. Trash link at the bottom → /library/trash.
+//
+// #64 owner decision 1a: archive-kind (kind === "archive") journals stay in
+// this one flat list, just with a muted "paper" chip next to the label — no
+// grouping/sectioning yet. `kind` already rides the summaries payload
+// (journal.ts's JournalSummary/journalSummariesSql), so this is read-only.
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
@@ -100,7 +105,14 @@ export default function LibraryView() {
               >
                 <CoverSlot />
                 <span className="flex flex-col gap-1">
-                  <span className="text-sm font-medium text-foreground">{j.label}</span>
+                  <span className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-foreground">{j.label}</span>
+                    {j.kind === "archive" && (
+                      <span className="rounded-full border border-hairline px-2 py-0.5 text-xs text-muted">
+                        paper
+                      </span>
+                    )}
+                  </span>
                   <span className="text-xs text-body">
                     {entryCountLabel(j.entryCount)}
                   </span>
