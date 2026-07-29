@@ -342,27 +342,33 @@ tail merges on pause before the editor read; "listening" textarea affordance. Th
 **#53** per-segment audio (`entry_audio` child table — the one open schema question),
 **#54** instant post-save nav with cycling placeholder + honest failure notes.
 
-**Next Steps**:
-- **Phone smokes now due**: #52 (continuous capture); #54 (instant post-save nav —
-  Done → placeholder cycles → entry renders → enrichment pops in; offline Done → amber note
-  → reopen recovers); page_label (activate journal → Pages input → label → Done → chip on
-  detail → New recording → pre-filled); journal manage (rename/kind/dates, delete blocked
-  on non-empty incl. trash); entry Edit (title/notes/location/written date, new entry gets
-  location "home", search finds notes text).
-- **Discuss Library grouping/badging by journal `kind`** (column + manage-panel select
-  shipped in #57; grouping UI deliberately deferred). Related someday: journal archive
-  (hide-not-delete) state.
-- **Desktop smoke of the 2026-07-28 UX round**: Esc-up chain, sticky SelectionBar +
-  one-click pickers in a long list, Library create tile, top action bar on entry pages.
-- **#35 next up** (has fresh scope note): mother-site style pass + top nav at md+ (bottom
-  tabs stay on phone). Then **#63** swipe/arrow entry-to-entry nav (wants #36's
-  URL-as-state).
-- **#35** mother-site style pass + desktop top-nav; **Node 22 + pnpm 10 chore** (before
-  passkeys; verify Vercel runtime too).
-- Then: **#36** search increments → **#33** covers (+ thumb variant) → **#53** per-segment
-  audio. Parked: audio-retry attempt cap (retryPending keeps failing-audio records forever),
-  sequential photo uploads + photoless-entry 500, EXIF portrait, optimistic journal-switch,
-  photo-fetch retry, orphan-blob purge sweep, airplane-recovery smoke.
+**Next Steps — phased roadmap (owner-reviewed 2026-07-28).** Desktop smoke of #56–#62
+PASSED 8/8 (owner) — functional layer solid; every complaint was readability/style, now
+captured in **#64**. #39 closed on that smoke; #38 stays open pending the phone pass.
+
+- **Phase 0 — phone smoke (start of next session, on the iPhone/PWA):** #52 continuous
+  capture (background mid-recording → paused not saved → record resumes SAME entry); #54
+  (Done → instant nav → cycling placeholder → enrichment pops in; airplane Done → amber
+  note → reopen recovers); page_label (label → chip → New-recording pre-fill); quick phone
+  pass of journal manage + entry Edit. Close #38 on pass.
+- **Phase 1 — style session: #64 + #35 together.** #64 = design-system overhaul (dark-mode
+  contrast: /40–50 text too dim; --surface/--surface-raised tokens so panels read distinct
+  from cards; ONE accent color used sparingly — REC-lamp green; own `<ConfirmDialog>`
+  replacing every `window.confirm`; "kind" select → "Old journal (paper archive)" toggle;
+  started/ended inputs prefill from computed first/last entry dates). #35 = mother-site
+  alignment + **top nav at md+** (bottom tabs stay on phone). Decide Library
+  grouping/badging by `kind` during this session.
+- **Phase 2 — platform chore:** Node 22 + pnpm 10 bump (prereq for passkeys; verify the
+  Vercel runtime too).
+- **Phase 3 — navigation & search:** #36 (filters in URL, match highlighting) THEN #63
+  swipe/arrow entry-to-entry — #63 needs #36's URL-as-state to know the view's order;
+  sequencing is load-bearing.
+- **Phase 4 — media:** #33 journal covers + stored ~300px thumb variant (kills per-card
+  photo fetch), then #53 per-segment audio (the open schema question — `entry_audio`).
+- **Phase 5 — passkeys** (details in the bullet below; after the Node bump).
+- Parked (pick up only if bitten): #2/#3 live-edit wishes, audio-retry attempt cap,
+  sequential photo uploads + photoless-entry 500, EXIF portrait, optimistic
+  journal-switch, photo-fetch retry, orphan-blob purge sweep.
 - **Passkeys (WebAuthn) primary + email/password as break-glass fallback** (NOT SMS — rejected as
   weakest 2FA; NOT Sign in with Apple — needs $99 dev program). Better Auth `passkey()` plugin:
   add to `src/lib/auth.ts` (`rpID: "recountly.org"` + localhost), `passkeyClient()` in
