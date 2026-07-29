@@ -29,6 +29,26 @@
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
   --font-serif: var(--font-newsreader);
+
+  /* Owner feedback (2026-07-28 style round): bump the type scale app-wide —
+     small sizes move up more (~20-25%) than large ones (~8-12%) since dense
+     UI text (badges, meta rows) was reading too small. Only the sizes
+     actually used in the app are overridden (checked via grep); line-heights
+     are recomputed to the next "nice" rem step so nothing gets cramped at
+     the larger sizes (ratios stay >= the original, several land a notch
+     more generous). Applies everywhere, including phone — intended. */
+  --text-xs: 0.9375rem; /* 12px -> 15px, +25% */
+  --text-xs--line-height: calc(1.25 / 0.9375);
+  --text-sm: 1.0625rem; /* 14px -> 17px, +21% */
+  --text-sm--line-height: calc(1.5 / 1.0625);
+  --text-base: 1.125rem; /* 16px -> 18px, +12.5% */
+  --text-base--line-height: calc(1.75 / 1.125);
+  --text-lg: 1.25rem; /* 18px -> 20px, +11% */
+  --text-lg--line-height: calc(2 / 1.25);
+  --text-xl: 1.375rem; /* 20px -> 22px, +10% */
+  --text-xl--line-height: calc(2 / 1.375);
+  --text-2xl: 1.625rem; /* 24px -> 26px, +8% */
+  --text-2xl--line-height: calc(2.25 / 1.625);
 }
 
 @media (prefers-color-scheme: dark) {

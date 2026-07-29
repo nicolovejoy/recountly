@@ -20,7 +20,7 @@ export default function RecStatusLine({
   meterRef: RefObject<HTMLSpanElement | null>;
 }) {
   return (
-    <div className="flex h-5 items-center gap-3 text-sm">
+    <div className="flex h-6 items-center gap-3 text-sm">
       {status === "live" ? (
         <>
           <span className="font-medium text-red-500">● REC</span>
