@@ -34,7 +34,7 @@ export default function JournalBar({
   const [creating, setCreating] = useState(false);
   const [newLabel, setNewLabel] = useState("");
   const field =
-    "rounded-lg border border-foreground/15 bg-transparent px-3 py-2 text-sm outline-none focus:border-foreground/40";
+    "rounded-lg border border-hairline bg-transparent px-3 py-2 text-sm outline-none focus:border-hairline-strong focus-visible:ring-1 focus-visible:ring-accent";
 
   if (journals === null) return null; // still loading — the bar appears when ready
 
@@ -51,7 +51,7 @@ export default function JournalBar({
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-2 text-xs text-foreground/50">
+    <div className="flex flex-wrap items-center gap-2 text-xs text-body">
       <label className="flex items-center gap-1">
         <span>Journal</span>
         <select
@@ -90,7 +90,7 @@ export default function JournalBar({
           <button
             type="button"
             onClick={() => void submitNew()}
-            className="rounded-lg border border-foreground/20 px-2 py-1 hover:bg-foreground/[0.06]"
+            className="rounded-lg border border-hairline-strong px-2 py-1 hover:bg-foreground/[0.06]"
           >
             Add
           </button>
@@ -100,7 +100,7 @@ export default function JournalBar({
               setCreating(false);
               setNewLabel("");
             }}
-            className="px-1 py-1 hover:text-foreground/80"
+            className="px-1 py-1 hover:text-foreground"
           >
             Cancel
           </button>

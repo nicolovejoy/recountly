@@ -58,20 +58,20 @@ export default function TranscriptEditor({
         ref={textRef}
         placeholder="Type or talk — your words appear here…"
         aria-label="Transcript"
-        className={`min-h-48 w-full flex-1 resize-none rounded-xl border bg-transparent p-4 text-lg leading-relaxed outline-none placeholder:text-foreground/30 transition-colors focus:border-foreground/30 ${
-          listening ? "border-foreground/10 border-l-4 border-l-red-500/70" : "border-foreground/10"
+        className={`min-h-48 w-full flex-1 resize-none rounded-xl border bg-transparent p-4 text-lg leading-relaxed outline-none placeholder:text-foreground/30 transition-colors focus:border-hairline-strong focus-visible:ring-1 focus-visible:ring-accent ${
+          listening ? "border-hairline border-l-4 border-l-red-500/70" : "border-hairline"
         }`}
       />
       {interim && (
         <p
           className={`px-4 text-lg leading-relaxed ${
-            listening ? "text-foreground/30 italic" : "text-foreground/40"
+            listening ? "text-foreground/30 italic" : "text-muted"
           }`}
         >
           {interim}
         </p>
       )}
-      <p className="px-4 text-xs text-foreground/40">
+      <p className="px-4 text-xs text-muted">
         {listening
           ? "Listening — you can type corrections; spoken words append at the end."
           : "Type or edit freely."}

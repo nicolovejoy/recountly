@@ -35,8 +35,8 @@ export default function RecordButton({
           : status === "paused"
             ? "animate-pulse border-red-600 bg-red-600/10 hover:bg-red-600/20"
             : status === "connecting"
-              ? "border-foreground/20 bg-foreground/[0.04]"
-              : "border-foreground/20 bg-foreground/[0.04] hover:bg-foreground/[0.08]"
+              ? "border-hairline-strong bg-foreground/[0.04]"
+              : "border-hairline-strong bg-foreground/[0.04] hover:bg-foreground/[0.08]"
       }`}
     >
       {status === "live" && (
@@ -61,7 +61,7 @@ export default function RecordButton({
       ) : status === "connecting" ? (
         // not ready — a neutral spinner, deliberately NOT red, so it never reads as "recording"
         <span
-          className="relative h-7 w-7 animate-spin rounded-full border-2 border-foreground/20 border-t-foreground/70"
+          className="relative h-7 w-7 animate-spin rounded-full border-2 border-hairline-strong border-t-body"
           aria-hidden
         />
       ) : (

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { formatEntryDateRange, resolveJournalDateRange } from "./date-range";
+import { formatEntryDateRange, isoToDateInput, resolveJournalDateRange } from "./date-range";
 
 // Library card date line: month+year span of a journal's entries.
 describe("formatEntryDateRange", () => {
@@ -71,5 +71,34 @@ describe("resolveJournalDateRange", () => {
 
   it("falls back to null when neither the stored nor computed range has data", () => {
     expect(resolveJournalDateRange(null, null, null, null)).toBeNull();
+  });
+});
+
+// Journal manage panel prefill (#64 Task 4).
+describe("isoToDateInput", () => {
+  it("converts a valid ISO string to a local YYYY-MM-DD", () => {
+    // Noon UTC is safe across real-world timezones — same convention the
+    // rest of this file uses (formatEntryDateRange tests above).
+    expect(isoToDateInput("1994-03-02T12:00:00Z")).toBe("1994-03-02");
+  });
+
+  it("returns an empty string for null", () => {
+    expect(isoToDateInput(null)).toBe("");
+  });
+
+  it("returns an empty string for an unparsable string", () => {
+    expect(isoToDateInput("not-a-date")).toBe("");
+  });
+
+  it("does not day-shift west of UTC", () => {
+    // TZ-deterministic construction (works on any machine): build the ISO
+    // from an explicit LOCAL Date late in the day, then check the function
+    // recovers that SAME local calendar day. This only holds if the
+    // implementation reads local getters (getFullYear/getMonth/getDate) —
+    // toISOString/UTC fields would push a late-local-day moment into the
+    // next UTC day, which round-trips back wrong for any timezone west of
+    // UTC (exactly the bug resolveJournalDateRange's comment warns about).
+    const local = new Date(2026, 0, 1, 23, 30); // Jan 1 2026, 11:30pm local
+    expect(isoToDateInput(local.toISOString())).toBe("2026-01-01");
   });
 });

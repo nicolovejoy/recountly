@@ -25,7 +25,7 @@ export default function SearchBar({
 }) {
   const hasFilters = Boolean(query || from || to || journal);
   const field =
-    "rounded-lg border border-foreground/15 bg-transparent px-3 py-2 text-sm outline-none focus:border-foreground/40";
+    "rounded-lg border border-hairline bg-transparent px-3 py-2 text-sm outline-none focus:border-hairline-strong focus-visible:ring-1 focus-visible:ring-accent";
 
   return (
     <div className="flex flex-col gap-2">
@@ -37,7 +37,7 @@ export default function SearchBar({
         aria-label="Search transcripts"
         className={field}
       />
-      <div className="flex flex-wrap items-center gap-2 text-xs text-foreground/50">
+      <div className="flex flex-wrap items-center gap-2 text-xs text-body">
         <label className="flex items-center gap-1">
           <span>From</span>
           <input
@@ -83,7 +83,7 @@ export default function SearchBar({
           <button
             type="button"
             onClick={onClear}
-            className="ml-auto rounded-lg px-2 py-1 text-foreground/50 underline-offset-2 hover:text-foreground/80 hover:underline"
+            className="ml-auto rounded-lg px-2 py-1 text-body underline-offset-2 hover:text-foreground hover:underline"
           >
             Clear
           </button>

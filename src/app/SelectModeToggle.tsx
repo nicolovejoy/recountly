@@ -30,7 +30,7 @@ export default function SelectModeToggle({
       <button
         type="button"
         onClick={onEnter}
-        className="shrink-0 text-xs text-foreground/40 hover:text-foreground/70"
+        className="shrink-0 text-xs text-muted hover:text-body"
       >
         Select
       </button>
@@ -42,7 +42,7 @@ export default function SelectModeToggle({
         type="button"
         onClick={allSelected ? onClear : onSelectAll}
         disabled={busy}
-        className="text-foreground/40 hover:text-foreground/70 disabled:opacity-40"
+        className="text-muted hover:text-body disabled:opacity-40"
       >
         {allSelected ? "Clear" : "Select all"}
       </button>
@@ -50,7 +50,7 @@ export default function SelectModeToggle({
         type="button"
         onClick={onExit}
         disabled={busy}
-        className="text-foreground/40 hover:text-foreground/70 disabled:opacity-40"
+        className="text-muted hover:text-body disabled:opacity-40"
       >
         Cancel
       </button>

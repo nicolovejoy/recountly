@@ -45,7 +45,7 @@ export default function PhotoTray({
         type="button"
         onClick={() => inputRef.current?.click()}
         disabled={busy}
-        className="rounded-lg border border-foreground/20 px-3 py-1.5 text-xs text-foreground/70 transition-colors hover:bg-foreground/[0.06] disabled:opacity-50"
+        className="rounded-lg border border-hairline-strong px-3 py-1.5 text-xs text-body transition-colors hover:bg-foreground/[0.06] disabled:opacity-50"
       >
         {busy ? "Processing…" : "📷 Add page photo"}
       </button>
@@ -56,13 +56,13 @@ export default function PhotoTray({
             <img
               src={p.previewUrl}
               alt="Attached page"
-              className="h-16 w-16 rounded-lg border border-foreground/10 object-cover"
+              className="h-16 w-16 rounded-lg border border-hairline object-cover"
             />
             <button
               type="button"
               onClick={() => onRemove(p.key)}
               aria-label="Remove photo"
-              className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full border border-foreground/20 bg-background text-[10px] leading-none text-foreground/70 hover:bg-foreground/[0.08]"
+              className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full border border-hairline-strong bg-background text-[10px] leading-none text-body hover:bg-foreground/[0.08]"
             >
               ✕
             </button>

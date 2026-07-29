@@ -27,7 +27,8 @@ import Link from "next/link";
 import type { EntryRecord } from "@/lib/entry";
 import type { JournalSummary, JournalUpdate } from "@/lib/journal";
 import { buildSearchQueryString } from "@/lib/search";
-import { resolveJournalDateRange } from "@/lib/date-range";
+import { isoToDateInput, resolveJournalDateRange } from "@/lib/date-range";
+import { useConfirm } from "./ConfirmDialog";
 import EntryCard from "./EntryCard";
 import SelectionBar, { UNFILED_VALUE } from "./SelectionBar";
 import SelectModeToggle from "./SelectModeToggle";
@@ -45,13 +46,17 @@ interface ManageForm {
   endedOn: string;
 }
 
+// Started/ended prefill from the computed first/last entry dates is a
+// suggestion, not a value: it only fills in when the journal has no stored
+// startedOn/endedOn of its own, and it happens once — here, on panel open —
+// never re-derived while the form is open, so it can't clobber an edit.
 function toManageForm(s: JournalSummary): ManageForm {
   return {
     label: s.label,
     notes: s.notes ?? "",
     kind: s.kind === "archive" ? "archive" : "",
-    startedOn: s.startedOn ?? "",
-    endedOn: s.endedOn ?? "",
+    startedOn: s.startedOn ?? isoToDateInput(s.firstEntryAt),
+    endedOn: s.endedOn ?? isoToDateInput(s.lastEntryAt),
   };
 }
 
@@ -62,6 +67,7 @@ export default function JournalView({ journalId }: { journalId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [sort, setSort] = useState<SortOption>("newest");
   const router = useRouter();
+  const confirm = useConfirm();
   const { journals, update, remove } = useJournals(); // options for each card's Move picker
 
   const bulk = useBulkSelection();
@@ -155,7 +161,15 @@ export default function JournalView({ journalId }: { journalId: string }) {
   async function handleBulkTrash() {
     if (bulk.selected.size === 0) return;
     const n = bulk.selected.size;
-    if (!window.confirm(`Trash ${n} ${n === 1 ? "entry" : "entries"}?`)) return;
+    if (
+      !(await confirm({
+        title: `Trash ${n} ${n === 1 ? "entry" : "entries"}?`,
+        message: "They move to Trash and can be restored later.",
+        confirmLabel: "Trash",
+        tone: "danger",
+      }))
+    )
+      return;
     await bulk.runBatch("trash", async (id) => {
       try {
         const res = await fetch(`/api/entries/${id}`, { method: "DELETE" });
@@ -208,9 +222,13 @@ export default function JournalView({ journalId }: { journalId: string }) {
   async function handleDelete() {
     if (!summary) return;
     if (
-      !window.confirm(
-        `Delete “${summary.label}”? This can’t be undone. (Blocked while any entries — live or trashed — still reference it.)`,
-      )
+      !(await confirm({
+        title: `Delete “${summary.label}”?`,
+        message:
+          "This can’t be undone. (Blocked while any entries — live or trashed — still reference it.)",
+        confirmLabel: "Delete",
+        tone: "danger",
+      }))
     ) {
       return;
     }
@@ -251,27 +269,27 @@ export default function JournalView({ journalId }: { journalId: string }) {
 
   return (
     <section className="flex flex-col gap-3">
-      <Link href="/library" className="text-xs text-foreground/40 hover:text-foreground/70">
+      <Link href="/library" className="text-xs text-muted hover:text-body">
         ← Library
       </Link>
 
       {error && <p className="text-sm text-red-500">Couldn’t load journal: {error}</p>}
 
       {summary === null && !error && (
-        <p className="text-sm text-foreground/40">No such journal.</p>
+        <p className="text-sm text-muted">No such journal.</p>
       )}
 
       {summary && (
         <div className="flex flex-col gap-1">
           <div className="flex items-start justify-between gap-3">
-            <h2 className="text-sm font-medium text-foreground/90">{summary.label}</h2>
+            <h2 className="text-sm font-medium text-foreground">{summary.label}</h2>
             <div className="flex shrink-0 items-center gap-3">
               {!bulk.selectMode && (
                 <button
                   type="button"
                   onClick={toggleManage}
                   aria-label={managing ? "Close journal settings" : "Manage journal"}
-                  className="text-xs text-foreground/40 hover:text-foreground/70"
+                  className="text-xs text-muted hover:text-body"
                 >
                   {managing ? "✕" : "✏️"}
                 </button>
@@ -290,17 +308,17 @@ export default function JournalView({ journalId }: { journalId: string }) {
             </div>
           </div>
           <div className="flex items-center justify-between gap-2">
-            <p className="text-xs text-foreground/50">
+            <p className="text-xs text-body">
               {entryCount} {entryCount === 1 ? "entry" : "entries"}
               {range && ` · ${range}`}
             </p>
-            <label className="flex items-center gap-1 text-xs text-foreground/50">
+            <label className="flex items-center gap-1 text-xs text-body">
               <span>Sort</span>
               <select
                 value={sort}
                 onChange={(e) => setSort(e.target.value as SortOption)}
                 aria-label="Sort entries"
-                className="rounded-lg border border-foreground/15 bg-transparent px-2 py-1 text-xs outline-none focus:border-foreground/40"
+                className="rounded-lg border border-hairline bg-transparent px-2 py-1 text-xs outline-none focus:border-hairline-strong focus-visible:ring-1 focus-visible:ring-accent"
               >
                 <option value="newest">Newest first</option>
                 <option value="reading">Oldest first</option>
@@ -311,54 +329,52 @@ export default function JournalView({ journalId }: { journalId: string }) {
       )}
 
       {managing && form && (
-        <div className="flex flex-col gap-2 rounded-xl border border-foreground/10 p-3">
-          <label className="flex flex-col gap-1 text-xs text-foreground/50">
+        <div className="flex flex-col gap-2 rounded-xl border border-hairline-strong bg-surface-raised p-3">
+          <label className="flex flex-col gap-1 text-xs text-body">
             <span>Label</span>
             <input
               type="text"
               value={form.label}
               onChange={(e) => setForm({ ...form, label: e.target.value })}
-              className="rounded-lg border border-foreground/15 bg-transparent px-2 py-1 text-sm text-foreground/90 outline-none focus:border-foreground/40"
+              className="rounded-lg border border-hairline bg-transparent px-2 py-1 text-sm text-foreground outline-none focus:border-hairline-strong focus-visible:ring-1 focus-visible:ring-accent"
             />
           </label>
-          <label className="flex flex-col gap-1 text-xs text-foreground/50">
-            <span>Kind</span>
-            <select
-              value={form.kind}
-              onChange={(e) => setForm({ ...form, kind: e.target.value as "" | "archive" })}
-              className="rounded-lg border border-foreground/15 bg-transparent px-2 py-1 text-sm text-foreground/90 outline-none focus:border-foreground/40"
-            >
-              <option value="">—</option>
-              <option value="archive">Archive</option>
-            </select>
+          <label className="flex items-center gap-2 text-xs text-body">
+            <input
+              type="checkbox"
+              checked={form.kind === "archive"}
+              onChange={(e) => setForm({ ...form, kind: e.target.checked ? "archive" : "" })}
+              className="focus-visible:ring-1 focus-visible:ring-accent"
+            />
+            <span>Old journal (paper archive)</span>
           </label>
           <div className="flex gap-2">
-            <label className="flex flex-1 flex-col gap-1 text-xs text-foreground/50">
+            <label className="flex flex-1 flex-col gap-1 text-xs text-body">
               <span>Started</span>
               <input
                 type="date"
                 value={form.startedOn}
                 onChange={(e) => setForm({ ...form, startedOn: e.target.value })}
-                className="rounded-lg border border-foreground/15 bg-transparent px-2 py-1 text-sm text-foreground/90 outline-none focus:border-foreground/40"
+                className="rounded-lg border border-hairline bg-transparent px-2 py-1 text-sm text-foreground outline-none focus:border-hairline-strong focus-visible:ring-1 focus-visible:ring-accent"
               />
             </label>
-            <label className="flex flex-1 flex-col gap-1 text-xs text-foreground/50">
+            <label className="flex flex-1 flex-col gap-1 text-xs text-body">
               <span>Ended</span>
               <input
                 type="date"
                 value={form.endedOn}
                 onChange={(e) => setForm({ ...form, endedOn: e.target.value })}
-                className="rounded-lg border border-foreground/15 bg-transparent px-2 py-1 text-sm text-foreground/90 outline-none focus:border-foreground/40"
+                className="rounded-lg border border-hairline bg-transparent px-2 py-1 text-sm text-foreground outline-none focus:border-hairline-strong focus-visible:ring-1 focus-visible:ring-accent"
               />
             </label>
           </div>
-          <label className="flex flex-col gap-1 text-xs text-foreground/50">
+          <label className="flex flex-col gap-1 text-xs text-body">
             <span>Notes</span>
             <textarea
               value={form.notes}
               onChange={(e) => setForm({ ...form, notes: e.target.value })}
               rows={2}
-              className="rounded-lg border border-foreground/15 bg-transparent px-2 py-1 text-sm text-foreground/90 outline-none focus:border-foreground/40"
+              className="rounded-lg border border-hairline bg-transparent px-2 py-1 text-sm text-foreground outline-none focus:border-hairline-strong focus-visible:ring-1 focus-visible:ring-accent"
             />
           </label>
           {saveError && <p className="text-sm text-red-500">Couldn’t save: {saveError}</p>}
@@ -369,7 +385,7 @@ export default function JournalView({ journalId }: { journalId: string }) {
                 type="button"
                 onClick={handleSave}
                 disabled={saving}
-                className="rounded-lg bg-foreground/90 px-3 py-1.5 text-xs font-medium text-background disabled:opacity-50"
+                className="rounded-lg bg-accent-strong px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
               >
                 {saving ? "Saving…" : "Save"}
               </button>
@@ -377,7 +393,7 @@ export default function JournalView({ journalId }: { journalId: string }) {
                 type="button"
                 onClick={toggleManage}
                 disabled={saving}
-                className="text-xs text-foreground/40 hover:text-foreground/70 disabled:opacity-50"
+                className="text-xs text-muted hover:text-body disabled:opacity-50"
               >
                 Cancel
               </button>
@@ -386,13 +402,13 @@ export default function JournalView({ journalId }: { journalId: string }) {
               type="button"
               onClick={handleDelete}
               disabled={deleting || (entryCount ?? 0) > 0}
-              className="text-xs text-foreground/40 hover:text-red-500 disabled:opacity-50"
+              className="text-xs text-muted hover:text-danger disabled:opacity-50"
             >
               {deleting ? "Deleting…" : "Delete journal"}
             </button>
           </div>
           {(entryCount ?? 0) > 0 && (
-            <p className="text-xs text-foreground/40">
+            <p className="text-xs text-muted">
               {entryCount} {entryCount === 1 ? "entry" : "entries"} — empty this journal first.
             </p>
           )}
@@ -415,7 +431,7 @@ export default function JournalView({ journalId }: { journalId: string }) {
       )}
 
       {summary && entries && entries.length === 0 && (
-        <p className="text-sm text-foreground/40">No entries in this journal yet.</p>
+        <p className="text-sm text-muted">No entries in this journal yet.</p>
       )}
 
       {summary && (

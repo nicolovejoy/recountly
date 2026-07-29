@@ -15,6 +15,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { EntryRecord } from "@/lib/entry";
 import { buildSearchQueryString } from "@/lib/search";
+import { useConfirm } from "./ConfirmDialog";
 import EntryCard from "./EntryCard";
 import SelectionBar, { UNFILED_VALUE } from "./SelectionBar";
 import SelectModeToggle from "./SelectModeToggle";
@@ -24,6 +25,7 @@ import { useJournals } from "./useJournals";
 
 export default function UnfiledView() {
   const router = useRouter();
+  const confirm = useConfirm();
   const [entries, setEntries] = useState<EntryRecord[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const { journals } = useJournals();
@@ -80,7 +82,15 @@ export default function UnfiledView() {
   async function handleBulkTrash() {
     if (bulk.selected.size === 0) return;
     const n = bulk.selected.size;
-    if (!window.confirm(`Trash ${n} ${n === 1 ? "entry" : "entries"}?`)) return;
+    if (
+      !(await confirm({
+        title: `Trash ${n} ${n === 1 ? "entry" : "entries"}?`,
+        message: "They move to Trash and can be restored later.",
+        confirmLabel: "Trash",
+        tone: "danger",
+      }))
+    )
+      return;
     await bulk.runBatch("trash", async (id) => {
       try {
         const res = await fetch(`/api/entries/${id}`, { method: "DELETE" });
@@ -96,15 +106,15 @@ export default function UnfiledView() {
 
   return (
     <section className="flex flex-col gap-3">
-      <Link href="/library" className="text-xs text-foreground/40 hover:text-foreground/70">
+      <Link href="/library" className="text-xs text-muted hover:text-body">
         ← Library
       </Link>
 
       <div className="flex items-start justify-between gap-3">
         <div className="flex flex-col gap-1">
-          <h2 className="text-sm font-medium text-foreground/90">Unfiled</h2>
+          <h2 className="text-sm font-medium text-foreground">Unfiled</h2>
           {entries && (
-            <p className="text-xs text-foreground/50">
+            <p className="text-xs text-body">
               {entries.length} {entries.length === 1 ? "entry" : "entries"}
             </p>
           )}
@@ -139,7 +149,7 @@ export default function UnfiledView() {
       {error && <p className="text-sm text-red-500">Couldn’t load entries: {error}</p>}
 
       {entries && entries.length === 0 && !error && (
-        <p className="text-sm text-foreground/40">No unfiled entries.</p>
+        <p className="text-sm text-muted">No unfiled entries.</p>
       )}
 
       <div className="flex flex-col gap-3">

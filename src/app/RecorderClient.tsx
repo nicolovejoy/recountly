@@ -601,7 +601,7 @@ export default function RecorderClient() {
   return (
     <div className="flex flex-col gap-6">
       <div className="flex justify-end">
-        <span className="rounded-full border border-foreground/10 px-3 py-1 text-xs text-foreground/50">
+        <span className="rounded-full border border-hairline px-3 py-1 text-xs text-body">
           {status}
         </span>
       </div>
@@ -612,18 +612,18 @@ export default function RecorderClient() {
         {inSession && (
           <button
             onClick={() => void handleDone()}
-            className="rounded-full border border-foreground/20 px-4 py-1 text-sm text-foreground/70 transition-colors hover:bg-foreground/[0.06]"
+            className="rounded-full border border-hairline-strong px-4 py-1 text-sm text-body transition-colors hover:bg-foreground/[0.06]"
           >
             Done
           </button>
         )}
         {status === "live" && (
-          <p className="text-xs text-foreground/40">
+          <p className="text-xs text-muted">
             press <kbd className="font-mono">Esc</kbd> to pause
           </p>
         )}
         {status === "paused" && (
-          <p className="text-xs text-foreground/40">tap the red button to resume</p>
+          <p className="text-xs text-muted">tap the red button to resume</p>
         )}
       </div>
 
@@ -686,8 +686,8 @@ export default function RecorderClient() {
             </div>
           ) : (
             <p
-              className={`rounded-full border border-foreground/15 bg-background px-4 py-1.5 text-sm shadow-lg ${
-                saveState === "saved" ? "text-green-600" : "text-foreground/70"
+              className={`rounded-full border border-hairline bg-background px-4 py-1.5 text-sm shadow-lg ${
+                saveState === "saved" ? "text-green-600" : "text-body"
               }`}
             >
               {saveState === "finishing" && "Finishing…"}

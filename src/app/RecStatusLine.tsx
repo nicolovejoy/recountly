@@ -24,8 +24,8 @@ export default function RecStatusLine({
       {status === "live" ? (
         <>
           <span className="font-medium text-red-500">● REC</span>
-          <span className="tabular-nums text-foreground/70">{formatElapsed(elapsedSec)}</span>
-          <span className="h-1 w-20 overflow-hidden rounded-full bg-foreground/10" aria-hidden>
+          <span className="tabular-nums text-body">{formatElapsed(elapsedSec)}</span>
+          <span className="h-1 w-20 overflow-hidden rounded-full bg-hairline" aria-hidden>
             <span
               ref={meterRef}
               className="block h-full w-full origin-left rounded-full bg-green-500 transition-transform duration-75 ease-out"
@@ -36,12 +36,12 @@ export default function RecStatusLine({
       ) : status === "paused" ? (
         <>
           <span className="font-medium text-amber-500">❚❚ PAUSED</span>
-          <span className="tabular-nums text-foreground/70">{formatElapsed(elapsedSec)}</span>
+          <span className="tabular-nums text-body">{formatElapsed(elapsedSec)}</span>
         </>
       ) : status === "connecting" ? (
-        <span className="font-medium text-foreground/60">Connecting… don’t speak yet</span>
+        <span className="font-medium text-muted">Connecting… don’t speak yet</span>
       ) : (
-        <span className="text-foreground/40">Tap to record</span>
+        <span className="text-muted">Tap to record</span>
       )}
     </div>
   );
