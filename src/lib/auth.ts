@@ -21,7 +21,13 @@ export const auth = betterAuth({
   baseURL: process.env.BETTER_AUTH_URL,
   // Accept auth requests from both origins during/after the recountly.org cutover
   // so flipping BETTER_AUTH_URL doesn't lock out the vercel.app fallback.
-  trustedOrigins: ["https://recountly.org", "https://recountly.vercel.app"],
+  // preview.recountly.org is the stable preview domain (assigned to the `preview`
+  // git branch on Vercel); random *.vercel.app preview URLs stay untrusted.
+  trustedOrigins: [
+    "https://recountly.org",
+    "https://recountly.vercel.app",
+    "https://preview.recountly.org",
+  ],
   // Single trusted owner on a trusted device — keep sessions long and rolling so
   // re-login is rare. updateAge slides the expiry forward once a day on use.
   session: {
