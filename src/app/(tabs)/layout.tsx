@@ -6,6 +6,7 @@
 
 import BrandLamp from "../BrandLamp";
 import { CaptureGuardProvider } from "../CaptureGuard";
+import { ConfirmProvider } from "../ConfirmDialog";
 import PendingSaveRecovery from "../PendingSaveRecovery";
 import TabBar from "../TabBar";
 
@@ -19,19 +20,21 @@ export default function TabsLayout({
 }>) {
   return (
     <CaptureGuardProvider>
-      <PendingSaveRecovery />
-      {/* pb-28 keeps the fixed tab bar from covering page content, with room
-          for the busy-hint line + safe-area inset. */}
-      <main className="mx-auto flex min-h-full w-full max-w-2xl flex-1 flex-col gap-6 px-5 py-8 pb-28">
-        <header className="flex items-center justify-between">
-          <BrandLamp />
-          {BUILD_TIME && (
-            <span className="text-[10px] text-foreground/40 tabular-nums">{BUILD_TIME} PT</span>
-          )}
-        </header>
-        {children}
-      </main>
-      <TabBar />
+      <ConfirmProvider>
+        <PendingSaveRecovery />
+        {/* pb-28 keeps the fixed tab bar from covering page content, with room
+            for the busy-hint line + safe-area inset. */}
+        <main className="mx-auto flex min-h-full w-full max-w-2xl flex-1 flex-col gap-6 px-5 py-8 pb-28">
+          <header className="flex items-center justify-between">
+            <BrandLamp />
+            {BUILD_TIME && (
+              <span className="text-[10px] text-foreground/40 tabular-nums">{BUILD_TIME} PT</span>
+            )}
+          </header>
+          {children}
+        </main>
+        <TabBar />
+      </ConfirmProvider>
     </CaptureGuardProvider>
   );
 }

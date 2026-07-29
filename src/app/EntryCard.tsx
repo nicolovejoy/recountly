@@ -23,6 +23,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { pauseOthers } from "@/lib/audio-exclusive";
+import { useConfirm } from "./ConfirmDialog";
 import { openSelectPicker } from "./openSelectPicker";
 import { formatElapsed } from "@/lib/elapsed";
 import type { EntryRecord } from "@/lib/entry";
@@ -151,6 +152,7 @@ export default function EntryCard({
     };
   }, [e.id, e.photoCount]);
 
+  const confirm = useConfirm();
   const [trashing, setTrashing] = useState(false);
   const [trashError, setTrashError] = useState<string | null>(null);
   const [movePickerOpen, setMovePickerOpen] = useState(false);
@@ -159,9 +161,13 @@ export default function EntryCard({
 
   async function handleDelete() {
     if (
-      !window.confirm(
-        "Move this entry to trash? It disappears from the list but nothing is destroyed — it can be recovered later.",
-      )
+      !(await confirm({
+        title: "Move this entry to trash?",
+        message:
+          "It disappears from the list but nothing is destroyed — it can be recovered later.",
+        confirmLabel: "Move to trash",
+        tone: "danger",
+      }))
     ) {
       return;
     }

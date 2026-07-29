@@ -28,6 +28,7 @@ import type { EntryRecord } from "@/lib/entry";
 import type { JournalSummary, JournalUpdate } from "@/lib/journal";
 import { buildSearchQueryString } from "@/lib/search";
 import { resolveJournalDateRange } from "@/lib/date-range";
+import { useConfirm } from "./ConfirmDialog";
 import EntryCard from "./EntryCard";
 import SelectionBar, { UNFILED_VALUE } from "./SelectionBar";
 import SelectModeToggle from "./SelectModeToggle";
@@ -62,6 +63,7 @@ export default function JournalView({ journalId }: { journalId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [sort, setSort] = useState<SortOption>("newest");
   const router = useRouter();
+  const confirm = useConfirm();
   const { journals, update, remove } = useJournals(); // options for each card's Move picker
 
   const bulk = useBulkSelection();
@@ -155,7 +157,15 @@ export default function JournalView({ journalId }: { journalId: string }) {
   async function handleBulkTrash() {
     if (bulk.selected.size === 0) return;
     const n = bulk.selected.size;
-    if (!window.confirm(`Trash ${n} ${n === 1 ? "entry" : "entries"}?`)) return;
+    if (
+      !(await confirm({
+        title: `Trash ${n} ${n === 1 ? "entry" : "entries"}?`,
+        message: "They move to Trash and can be restored later.",
+        confirmLabel: "Trash",
+        tone: "danger",
+      }))
+    )
+      return;
     await bulk.runBatch("trash", async (id) => {
       try {
         const res = await fetch(`/api/entries/${id}`, { method: "DELETE" });
@@ -208,9 +218,13 @@ export default function JournalView({ journalId }: { journalId: string }) {
   async function handleDelete() {
     if (!summary) return;
     if (
-      !window.confirm(
-        `Delete “${summary.label}”? This can’t be undone. (Blocked while any entries — live or trashed — still reference it.)`,
-      )
+      !(await confirm({
+        title: `Delete “${summary.label}”?`,
+        message:
+          "This can’t be undone. (Blocked while any entries — live or trashed — still reference it.)",
+        confirmLabel: "Delete",
+        tone: "danger",
+      }))
     ) {
       return;
     }

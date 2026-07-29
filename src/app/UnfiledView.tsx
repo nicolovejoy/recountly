@@ -15,6 +15,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { EntryRecord } from "@/lib/entry";
 import { buildSearchQueryString } from "@/lib/search";
+import { useConfirm } from "./ConfirmDialog";
 import EntryCard from "./EntryCard";
 import SelectionBar, { UNFILED_VALUE } from "./SelectionBar";
 import SelectModeToggle from "./SelectModeToggle";
@@ -24,6 +25,7 @@ import { useJournals } from "./useJournals";
 
 export default function UnfiledView() {
   const router = useRouter();
+  const confirm = useConfirm();
   const [entries, setEntries] = useState<EntryRecord[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const { journals } = useJournals();
@@ -80,7 +82,15 @@ export default function UnfiledView() {
   async function handleBulkTrash() {
     if (bulk.selected.size === 0) return;
     const n = bulk.selected.size;
-    if (!window.confirm(`Trash ${n} ${n === 1 ? "entry" : "entries"}?`)) return;
+    if (
+      !(await confirm({
+        title: `Trash ${n} ${n === 1 ? "entry" : "entries"}?`,
+        message: "They move to Trash and can be restored later.",
+        confirmLabel: "Trash",
+        tone: "danger",
+      }))
+    )
+      return;
     await bulk.runBatch("trash", async (id) => {
       try {
         const res = await fetch(`/api/entries/${id}`, { method: "DELETE" });

@@ -41,6 +41,7 @@ import {
   POLL_INTERVAL_MS,
   type PollState,
 } from "@/lib/post-save-poll";
+import { useConfirm } from "./ConfirmDialog";
 import { idbPendingStore } from "./idb-pending";
 import { openSelectPicker } from "./openSelectPicker";
 import { useEscUp } from "./useEscUp";
@@ -57,6 +58,7 @@ function formatWhen(iso: string): string {
 
 export default function EntryDetail({ id }: { id: string }) {
   const router = useRouter();
+  const confirm = useConfirm();
   const searchParams = useSearchParams();
   const justSaved = searchParams.get("saved") === "1";
 
@@ -246,9 +248,13 @@ export default function EntryDetail({ id }: { id: string }) {
   async function handleDelete() {
     if (!entry) return;
     if (
-      !window.confirm(
-        "Move this entry to trash? It disappears from the list but nothing is destroyed — it can be recovered later.",
-      )
+      !(await confirm({
+        title: "Move this entry to trash?",
+        message:
+          "It disappears from the list but nothing is destroyed — it can be recovered later.",
+        confirmLabel: "Move to trash",
+        tone: "danger",
+      }))
     ) {
       return;
     }

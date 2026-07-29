@@ -11,6 +11,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { formatElapsed } from "@/lib/elapsed";
 import type { EntryRecord } from "@/lib/entry";
+import { useConfirm } from "./ConfirmDialog";
 import { useEscUp } from "./useEscUp";
 
 function formatWhen(iso: string): string {
@@ -24,6 +25,7 @@ function entryName(e: EntryRecord): string {
 
 export default function TrashView() {
   const router = useRouter();
+  const confirm = useConfirm();
   const [entries, setEntries] = useState<EntryRecord[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<{ id: string; kind: "restore" | "purge" } | null>(null);
@@ -66,7 +68,14 @@ export default function TrashView() {
   }
 
   async function handlePurge(entry: EntryRecord) {
-    if (!window.confirm(`Delete “${entryName(entry)}” forever? This can’t be undone.`)) {
+    if (
+      !(await confirm({
+        title: `Delete “${entryName(entry)}” forever?`,
+        message: "This can’t be undone.",
+        confirmLabel: "Delete forever",
+        tone: "danger",
+      }))
+    ) {
       return;
     }
     setBusy({ id: entry.id, kind: "purge" });
@@ -85,9 +94,12 @@ export default function TrashView() {
   async function handleEmptyTrash() {
     const n = entries?.length ?? 0;
     if (
-      !window.confirm(
-        `Permanently delete ${n} trashed ${n === 1 ? "entry" : "entries"}? This can’t be undone.`,
-      )
+      !(await confirm({
+        title: `Permanently delete ${n} trashed ${n === 1 ? "entry" : "entries"}?`,
+        message: "This can’t be undone.",
+        confirmLabel: "Delete forever",
+        tone: "danger",
+      }))
     ) {
       return;
     }
