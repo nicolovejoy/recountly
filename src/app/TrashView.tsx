@@ -117,21 +117,21 @@ export default function TrashView() {
   return (
     <section className="flex flex-col gap-3">
       <div className="flex items-baseline justify-between gap-3">
-        <h2 className="text-sm font-medium text-foreground/50">Trash</h2>
+        <h2 className="text-sm font-medium text-body">Trash</h2>
         <span className="flex items-baseline gap-3">
           {(entries?.length ?? 0) > 0 && (
             <button
               type="button"
               onClick={handleEmptyTrash}
               disabled={emptying}
-              className="text-xs text-foreground/40 hover:text-red-500 disabled:opacity-50"
+              className="text-xs text-muted hover:text-danger disabled:opacity-50"
             >
               {emptying ? "Emptying…" : "Empty trash"}
             </button>
           )}
           <Link
             href="/library"
-            className="text-xs text-foreground/40 hover:text-foreground/70"
+            className="text-xs text-muted hover:text-body"
           >
             ← Library
           </Link>
@@ -143,7 +143,7 @@ export default function TrashView() {
       {actionError && <p className="text-sm text-red-500">Couldn’t update trash: {actionError}</p>}
 
       {entries && entries.length === 0 && !error && (
-        <p className="text-sm text-foreground/40">Trash is empty.</p>
+        <p className="text-sm text-muted">Trash is empty.</p>
       )}
 
       <ul className="flex flex-col gap-3">
@@ -152,19 +152,19 @@ export default function TrashView() {
           return (
             <li
               key={e.id}
-              className="flex flex-col gap-2 rounded-xl border border-foreground/10 p-4"
+              className="flex flex-col gap-2 rounded-xl border border-hairline bg-surface p-4"
             >
               <div className="flex items-baseline justify-between gap-3">
-                <span className="text-sm font-medium text-foreground/90">{entryName(e)}</span>
+                <span className="text-sm font-medium text-foreground">{entryName(e)}</span>
                 <span className="flex shrink-0 items-baseline gap-2">
-                  <span className="text-xs tabular-nums text-foreground/50">
+                  <span className="text-xs tabular-nums text-body">
                     {formatElapsed(e.durationSeconds)}
                   </span>
                   <button
                     type="button"
                     onClick={() => handleRestore(e.id)}
                     disabled={isBusy || emptying}
-                    className="text-xs text-foreground/40 hover:text-foreground/70 disabled:opacity-50"
+                    className="text-xs text-muted hover:text-body disabled:opacity-50"
                   >
                     {isBusy && busy?.kind === "restore" ? "Restoring…" : "Restore"}
                   </button>
@@ -172,18 +172,18 @@ export default function TrashView() {
                     type="button"
                     onClick={() => handlePurge(e)}
                     disabled={isBusy || emptying}
-                    className="text-xs text-foreground/40 hover:text-red-500 disabled:opacity-50"
+                    className="text-xs text-muted hover:text-danger disabled:opacity-50"
                   >
                     {isBusy && busy?.kind === "purge" ? "Deleting…" : "Delete forever"}
                   </button>
                 </span>
               </div>
               {e.title && (
-                <span className="text-xs text-foreground/40">{formatWhen(e.recordedAt)}</span>
+                <span className="text-xs text-muted">{formatWhen(e.recordedAt)}</span>
               )}
-              {e.summary && <p className="text-sm italic text-foreground/60">{e.summary}</p>}
+              {e.summary && <p className="text-sm italic text-muted">{e.summary}</p>}
               {e.deletedAt && (
-                <p className="text-xs text-foreground/40">trashed {formatWhen(e.deletedAt)}</p>
+                <p className="text-xs text-muted">trashed {formatWhen(e.deletedAt)}</p>
               )}
             </li>
           );

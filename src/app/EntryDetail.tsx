@@ -377,13 +377,13 @@ export default function EntryDetail({ id }: { id: string }) {
   return (
     <section className="flex flex-col gap-4">
       <div className="flex items-center justify-between gap-3">
-        <Link href="/library" className="text-xs text-foreground/40 hover:text-foreground/70">
+        <Link href="/library" className="text-xs text-muted hover:text-body">
           ← Library
         </Link>
         {justSaved && (
           <Link
             href={newRecordingHref}
-            className="rounded-full border border-foreground/20 px-3 py-1 text-xs text-foreground/70 transition-colors hover:bg-foreground/[0.06]"
+            className="rounded-full border border-hairline-strong px-3 py-1 text-xs text-body transition-colors hover:bg-foreground/[0.06]"
           >
             New recording
           </Link>
@@ -403,13 +403,13 @@ export default function EntryDetail({ id }: { id: string }) {
           "Done" and the row landing reads as progress rather than a hang. */}
       {showPlaceholder && (
         <div className="flex flex-col gap-3">
-          <div className="h-6 w-2/3 animate-pulse rounded bg-foreground/10" />
+          <div className="h-6 w-2/3 animate-pulse rounded bg-hairline" />
           <div className="flex flex-col gap-2">
-            <div className="h-4 w-full animate-pulse rounded bg-foreground/10" />
-            <div className="h-4 w-5/6 animate-pulse rounded bg-foreground/10" />
-            <div className="h-4 w-4/6 animate-pulse rounded bg-foreground/10" />
+            <div className="h-4 w-full animate-pulse rounded bg-hairline" />
+            <div className="h-4 w-5/6 animate-pulse rounded bg-hairline" />
+            <div className="h-4 w-4/6 animate-pulse rounded bg-hairline" />
           </div>
-          <p className="text-sm text-foreground/50" aria-live="polite">
+          <p className="text-sm text-body" aria-live="polite">
             {placeholderStatusLine(elapsedMs)}
           </p>
         </div>
@@ -422,11 +422,11 @@ export default function EntryDetail({ id }: { id: string }) {
       )}
 
       {entry === null && !loadError && (
-        <p className="text-sm text-foreground/40">No such entry.</p>
+        <p className="text-sm text-muted">No such entry.</p>
       )}
 
       {entry === undefined && !justSaved && polling && !loadError && (
-        <p className="text-sm text-foreground/40">Loading…</p>
+        <p className="text-sm text-muted">Loading…</p>
       )}
 
       {entry && (
@@ -439,7 +439,7 @@ export default function EntryDetail({ id }: { id: string }) {
                 onChange={(e) => setEditTitle(e.target.value)}
                 placeholder={formatWhen(entry.recordedAt)}
                 aria-label="Title"
-                className="rounded-lg border border-foreground/15 bg-transparent px-3 py-2 text-sm outline-none focus:border-foreground/40"
+                className="rounded-lg border border-hairline bg-transparent px-3 py-2 text-sm outline-none focus:border-hairline-strong focus-visible:ring-1 focus-visible:ring-accent"
               />
               <input
                 type="text"
@@ -447,15 +447,15 @@ export default function EntryDetail({ id }: { id: string }) {
                 onChange={(e) => setEditLocation(e.target.value)}
                 placeholder="Location"
                 aria-label="Location"
-                className="rounded-lg border border-foreground/15 bg-transparent px-3 py-2 text-sm outline-none focus:border-foreground/40"
+                className="rounded-lg border border-hairline bg-transparent px-3 py-2 text-sm outline-none focus:border-hairline-strong focus-visible:ring-1 focus-visible:ring-accent"
               />
-              <label className="flex flex-col gap-1 text-xs text-foreground/50">
+              <label className="flex flex-col gap-1 text-xs text-body">
                 Written date
                 <input
                   type="date"
                   value={editWrittenDate}
                   onChange={(e) => setEditWrittenDate(e.target.value)}
-                  className="rounded-lg border border-foreground/15 bg-transparent px-3 py-2 text-sm text-foreground outline-none focus:border-foreground/40"
+                  className="rounded-lg border border-hairline bg-transparent px-3 py-2 text-sm text-foreground outline-none focus:border-hairline-strong focus-visible:ring-1 focus-visible:ring-accent"
                 />
               </label>
               <textarea
@@ -464,14 +464,14 @@ export default function EntryDetail({ id }: { id: string }) {
                 placeholder="Notes"
                 rows={3}
                 aria-label="Notes"
-                className="rounded-lg border border-foreground/15 bg-transparent px-3 py-2 text-sm outline-none focus:border-foreground/40"
+                className="rounded-lg border border-hairline bg-transparent px-3 py-2 text-sm outline-none focus:border-hairline-strong focus-visible:ring-1 focus-visible:ring-accent"
               />
               <div className="flex items-center gap-2">
                 <button
                   type="button"
                   onClick={handleSaveEdit}
                   disabled={savingEdit}
-                  className="rounded-full border border-foreground/20 px-3 py-1 text-xs text-foreground/70 transition-colors hover:bg-foreground/[0.06] disabled:opacity-50"
+                  className="rounded-full bg-accent-strong px-3 py-1 text-xs font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
                 >
                   {savingEdit ? "Saving…" : "Save"}
                 </button>
@@ -479,7 +479,7 @@ export default function EntryDetail({ id }: { id: string }) {
                   type="button"
                   onClick={cancelEdit}
                   disabled={savingEdit}
-                  className="text-xs text-foreground/40 hover:text-foreground/70 disabled:opacity-50"
+                  className="text-xs text-muted hover:text-body disabled:opacity-50"
                 >
                   Cancel
                 </button>
@@ -490,26 +490,26 @@ export default function EntryDetail({ id }: { id: string }) {
             </div>
           ) : (
             <div className="flex flex-col gap-2">
-              <h1 className="text-lg font-medium text-foreground/90">
+              <h1 className="text-lg font-medium text-foreground">
                 {entry.title ?? formatWhen(entry.recordedAt)}
               </h1>
               {entry.title && (
-                <span className="text-xs text-foreground/40">{formatWhen(entry.recordedAt)}</span>
+                <span className="text-xs text-muted">{formatWhen(entry.recordedAt)}</span>
               )}
               {(journalLabel || entry.writtenAt || entry.pageLabel || entry.location) && (
-                <div className="flex flex-wrap items-center gap-2 text-xs text-foreground/40">
+                <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
                   {journalLabel && (
-                    <span className="rounded-full border border-foreground/10 px-2 py-0.5">
+                    <span className="rounded-full border border-hairline px-2 py-0.5">
                       📓 {journalLabel}
                     </span>
                   )}
                   {entry.pageLabel && (
-                    <span className="rounded-full border border-foreground/10 px-2 py-0.5">
+                    <span className="rounded-full border border-hairline px-2 py-0.5">
                       {entry.pageLabel}
                     </span>
                   )}
                   {entry.location && (
-                    <span className="rounded-full border border-foreground/10 px-2 py-0.5">
+                    <span className="rounded-full border border-hairline px-2 py-0.5">
                       📍 {entry.location}
                     </span>
                   )}
@@ -519,17 +519,17 @@ export default function EntryDetail({ id }: { id: string }) {
                 </div>
               )}
               {entry.summary && (
-                <p className="text-sm italic text-foreground/60">{entry.summary}</p>
+                <p className="text-sm italic text-muted">{entry.summary}</p>
               )}
               {entry.notes && (
-                <p className="whitespace-pre-wrap text-sm text-foreground/70">{entry.notes}</p>
+                <p className="whitespace-pre-wrap text-sm text-body">{entry.notes}</p>
               )}
               {entry.tags.length > 0 && (
                 <ul className="flex flex-wrap gap-1.5">
                   {entry.tags.map((tag) => (
                     <li
                       key={tag}
-                      className="rounded-full bg-foreground/5 px-2 py-0.5 text-xs text-foreground/60"
+                      className="rounded-full bg-foreground/5 px-2 py-0.5 text-xs text-muted"
                     >
                       {tag}
                     </li>
@@ -541,9 +541,9 @@ export default function EntryDetail({ id }: { id: string }) {
 
           {/* Action bar lives up top, under the title — owner request
               2026-07-28 (was buried below transcript/audio/photos). */}
-          <div className="flex flex-col gap-2 border-b border-foreground/10 pb-3">
+          <div className="flex flex-col gap-2 border-b border-hairline pb-3">
             <div className="flex items-center justify-between gap-3">
-              <span className="text-xs tabular-nums text-foreground/50">
+              <span className="text-xs tabular-nums text-body">
                 {formatElapsed(entry.durationSeconds)}
               </span>
               <span className="flex shrink-0 items-center gap-2">
@@ -555,7 +555,7 @@ export default function EntryDetail({ id }: { id: string }) {
                   <button
                     type="button"
                     onClick={startEdit}
-                    className="rounded-full border border-foreground/20 px-3 py-1 text-xs text-foreground/70 transition-colors hover:bg-foreground/[0.06]"
+                    className="rounded-full border border-hairline-strong px-3 py-1 text-xs text-body transition-colors hover:bg-foreground/[0.06]"
                   >
                     ✏️ Edit
                   </button>
@@ -564,7 +564,7 @@ export default function EntryDetail({ id }: { id: string }) {
                   type="button"
                   onClick={() => setMovePickerOpen((open) => !open)}
                   disabled={moving}
-                  className="rounded-full border border-foreground/20 px-3 py-1 text-xs text-foreground/70 transition-colors hover:bg-foreground/[0.06] disabled:opacity-50"
+                  className="rounded-full border border-hairline-strong px-3 py-1 text-xs text-body transition-colors hover:bg-foreground/[0.06] disabled:opacity-50"
                 >
                   {moving ? "Moving…" : "📁 Move…"}
                 </button>
@@ -572,14 +572,14 @@ export default function EntryDetail({ id }: { id: string }) {
                   type="button"
                   onClick={handleDelete}
                   disabled={trashing}
-                  className="rounded-full border border-foreground/20 px-3 py-1 text-xs text-foreground/70 transition-colors hover:border-red-300 hover:text-red-500 disabled:opacity-50"
+                  className="rounded-full border border-hairline-strong px-3 py-1 text-xs text-body transition-colors hover:border-red-300 hover:text-danger disabled:opacity-50"
                 >
                   {trashing ? "Trashing…" : "🗑 Trash"}
                 </button>
               </span>
             </div>
             {movePickerOpen && (
-              <div className="flex items-center gap-2 text-xs text-foreground/50">
+              <div className="flex items-center gap-2 text-xs text-body">
                 <span>Move to</span>
                 <select
                   ref={openSelectPicker}
@@ -591,7 +591,7 @@ export default function EntryDetail({ id }: { id: string }) {
                     handleMove(v === UNFILED_VALUE ? null : v);
                   }}
                   aria-label="Move to journal"
-                  className="rounded-lg border border-foreground/15 bg-transparent px-2 py-1 text-xs outline-none focus:border-foreground/40"
+                  className="rounded-lg border border-hairline bg-transparent px-2 py-1 text-xs outline-none focus:border-hairline-strong focus-visible:ring-1 focus-visible:ring-accent"
                 >
                   <option value="" disabled>
                     Choose…
@@ -608,7 +608,7 @@ export default function EntryDetail({ id }: { id: string }) {
                 <button
                   type="button"
                   onClick={() => setMovePickerOpen(false)}
-                  className="text-foreground/40 hover:text-foreground/70"
+                  className="text-muted hover:text-body"
                 >
                   Cancel
                 </button>
@@ -656,7 +656,7 @@ export default function EntryDetail({ id }: { id: string }) {
                     src={`/api/photo/${p.id}`}
                     alt="Journal page"
                     loading="lazy"
-                    className="max-h-96 rounded-lg border border-foreground/10"
+                    className="max-h-96 rounded-lg border border-hairline"
                   />
                 </li>
               ))}

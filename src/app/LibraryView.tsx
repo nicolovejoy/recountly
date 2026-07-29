@@ -80,7 +80,7 @@ export default function LibraryView() {
 
   return (
     <section className="flex flex-col gap-3">
-      <h2 className="text-sm font-medium text-foreground/50">Library</h2>
+      <h2 className="text-sm font-medium text-body">Library</h2>
 
       {error && <p className="text-sm text-red-500">Couldn’t load library: {error}</p>}
 
@@ -96,15 +96,15 @@ export default function LibraryView() {
             <li key={j.id}>
               <Link
                 href={`/library/${j.id}`}
-                className="flex items-center gap-3 rounded-xl border border-foreground/10 p-4"
+                className="flex items-center gap-3 rounded-xl border border-hairline bg-surface p-4"
               >
                 <CoverSlot />
                 <span className="flex flex-col gap-1">
-                  <span className="text-sm font-medium text-foreground/90">{j.label}</span>
-                  <span className="text-xs text-foreground/50">
+                  <span className="text-sm font-medium text-foreground">{j.label}</span>
+                  <span className="text-xs text-body">
                     {entryCountLabel(j.entryCount)}
                   </span>
-                  {range && <span className="text-xs text-foreground/40">{range}</span>}
+                  {range && <span className="text-xs text-muted">{range}</span>}
                 </span>
               </Link>
             </li>
@@ -115,7 +115,7 @@ export default function LibraryView() {
             {creating ? (
               <form
                 onSubmit={handleCreate}
-                className="flex items-center gap-2 rounded-xl border border-dashed border-foreground/20 p-4"
+                className="flex items-center gap-2 rounded-xl border border-dashed border-hairline-strong bg-surface p-4"
               >
                 <input
                   autoFocus
@@ -123,12 +123,12 @@ export default function LibraryView() {
                   onChange={(e) => setNewLabel(e.target.value)}
                   placeholder="Journal name"
                   disabled={createBusy}
-                  className="min-w-0 flex-1 rounded-md border border-foreground/15 bg-transparent px-2 py-1 text-sm"
+                  className="min-w-0 flex-1 rounded-md border border-hairline bg-transparent px-2 py-1 text-sm"
                 />
                 <button
                   type="submit"
                   disabled={createBusy || !newLabel.trim()}
-                  className="text-sm text-foreground/70 disabled:opacity-40"
+                  className="text-sm text-body disabled:opacity-40"
                 >
                   {createBusy ? "Creating…" : "Create"}
                 </button>
@@ -140,7 +140,7 @@ export default function LibraryView() {
                     setNewLabel("");
                     setCreateError(null);
                   }}
-                  className="text-sm text-foreground/40"
+                  className="text-sm text-muted"
                 >
                   Cancel
                 </button>
@@ -149,7 +149,7 @@ export default function LibraryView() {
               <button
                 type="button"
                 onClick={() => setCreating(true)}
-                className="flex w-full items-center gap-3 rounded-xl border border-dashed border-foreground/20 p-4 text-sm text-foreground/60"
+                className="flex w-full items-center gap-3 rounded-xl border border-dashed border-hairline-strong bg-surface p-4 text-sm text-muted"
               >
                 + New journal
               </button>
@@ -163,12 +163,12 @@ export default function LibraryView() {
           <li>
             <Link
               href="/library/unfiled"
-              className="flex items-center gap-3 rounded-xl border border-foreground/10 p-4"
+              className="flex items-center gap-3 rounded-xl border border-hairline bg-surface p-4"
             >
               <CoverSlot />
               <span className="flex flex-col gap-1">
-                <span className="text-sm font-medium text-foreground/90">Unfiled</span>
-                <span className="text-xs text-foreground/50">
+                <span className="text-sm font-medium text-foreground">Unfiled</span>
+                <span className="text-xs text-body">
                   {entryCountLabel(data.unfiledCount)}
                 </span>
               </span>
@@ -179,7 +179,7 @@ export default function LibraryView() {
 
       <Link
         href="/library/trash"
-        className="self-start text-xs text-foreground/40 hover:text-foreground/70"
+        className="self-start text-xs text-muted hover:text-body"
       >
         Trash
       </Link>

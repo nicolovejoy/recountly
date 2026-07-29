@@ -96,15 +96,15 @@ export default function UnfiledView() {
 
   return (
     <section className="flex flex-col gap-3">
-      <Link href="/library" className="text-xs text-foreground/40 hover:text-foreground/70">
+      <Link href="/library" className="text-xs text-muted hover:text-body">
         ← Library
       </Link>
 
       <div className="flex items-start justify-between gap-3">
         <div className="flex flex-col gap-1">
-          <h2 className="text-sm font-medium text-foreground/90">Unfiled</h2>
+          <h2 className="text-sm font-medium text-foreground">Unfiled</h2>
           {entries && (
-            <p className="text-xs text-foreground/50">
+            <p className="text-xs text-body">
               {entries.length} {entries.length === 1 ? "entry" : "entries"}
             </p>
           )}
@@ -139,7 +139,7 @@ export default function UnfiledView() {
       {error && <p className="text-sm text-red-500">Couldn’t load entries: {error}</p>}
 
       {entries && entries.length === 0 && !error && (
-        <p className="text-sm text-foreground/40">No unfiled entries.</p>
+        <p className="text-sm text-muted">No unfiled entries.</p>
       )}
 
       <div className="flex flex-col gap-3">

@@ -82,7 +82,7 @@ export default function EntryList({
 
   return (
     <section className="flex flex-col gap-3">
-      <h2 className="text-sm font-medium text-foreground/50">Entries</h2>
+      <h2 className="text-sm font-medium text-body">Entries</h2>
 
       <SearchBar
         query={query}
@@ -110,7 +110,7 @@ export default function EntryList({
       )}
 
       {entries && entries.length === 0 && !error && (
-        <p className="text-sm text-foreground/40">
+        <p className="text-sm text-muted">
           {isSearching ? "No entries match." : "No entries yet — record one above."}
         </p>
       )}

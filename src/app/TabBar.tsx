@@ -16,9 +16,9 @@ export default function TabBar() {
   const { busy } = useCaptureGuard();
 
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-foreground/15 bg-background shadow-[0_-2px_10px_rgba(0,0,0,0.08)] pb-[env(safe-area-inset-bottom)]">
+    <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-hairline bg-background shadow-[0_-2px_10px_rgba(0,0,0,0.08)] pb-[env(safe-area-inset-bottom)]">
       {busy && (
-        <p className="pt-1.5 text-center text-[11px] text-foreground/50">
+        <p className="pt-1.5 text-center text-[11px] text-body">
           Recording in progress — tap Done before leaving
         </p>
       )}
@@ -27,11 +27,13 @@ export default function TabBar() {
           const isActive = tab === active;
           const inert = busy && tab !== "capture";
           // The border-t-2 doubles as the active-tab indicator line, sitting
-          // just under the nav's own hairline border.
+          // just under the nav's own hairline border. Accent green is
+          // reserved for exactly this active-tab state (+ primary buttons,
+          // focus rings) per the design tokens.
           const base = `block border-t-2 py-3 text-center text-sm ${
             isActive
-              ? "border-foreground font-semibold text-foreground"
-              : "border-transparent text-foreground/50"
+              ? "border-accent font-semibold text-accent"
+              : "border-transparent text-body"
           }`;
           return (
             <li key={tab} className="flex-1">

@@ -43,7 +43,7 @@ export default function SelectionBar({
   const noun = count === 1 ? "entry" : "entries";
   const pickerRef = useRef<HTMLSelectElement>(null);
   return (
-    <div className="sticky top-2 z-10 flex flex-wrap items-center gap-2 rounded-lg border border-foreground/10 bg-background p-2 text-xs text-foreground/60 shadow-md">
+    <div className="sticky top-2 z-10 flex flex-wrap items-center gap-2 rounded-lg border border-hairline bg-surface p-2 text-xs text-muted shadow-md">
       <span>{count} selected</span>
       <select
         ref={pickerRef}
@@ -51,7 +51,7 @@ export default function SelectionBar({
         onChange={(ev) => onBulkTargetChange(ev.target.value)}
         disabled={busy}
         aria-label="Move selected entries to journal"
-        className="rounded-lg border border-foreground/15 bg-transparent px-2 py-1 text-xs outline-none focus:border-foreground/40"
+        className="rounded-lg border border-hairline bg-transparent px-2 py-1 text-xs outline-none focus:border-hairline-strong focus-visible:ring-1 focus-visible:ring-accent"
       >
         <option value="">Choose journal…</option>
         {includeUnfiledOption && <option value={UNFILED_VALUE}>Unfiled</option>}
@@ -65,7 +65,7 @@ export default function SelectionBar({
         type="button"
         onClick={() => (bulkTarget ? onMove() : openSelectPicker(pickerRef.current))}
         disabled={busy || count === 0}
-        className="rounded-lg border border-foreground/15 px-2 py-1 text-foreground/70 hover:border-foreground/40 disabled:opacity-40"
+        className="rounded-lg border border-hairline px-2 py-1 text-body hover:border-hairline-strong disabled:opacity-40"
       >
         {busy ? "Working…" : `Move ${count} ${noun}`}
       </button>
@@ -73,7 +73,7 @@ export default function SelectionBar({
         type="button"
         onClick={onTrash}
         disabled={busy || count === 0}
-        className="rounded-lg border border-foreground/15 px-2 py-1 text-foreground/70 hover:border-red-500 hover:text-red-500 disabled:opacity-40"
+        className="rounded-lg border border-hairline px-2 py-1 text-body hover:border-danger hover:text-danger disabled:opacity-40"
       >
         {busy ? "Working…" : `Trash ${count} ${noun}`}
       </button>

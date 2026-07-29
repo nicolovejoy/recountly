@@ -11,13 +11,13 @@ import type { LogLine } from "./useRecorder";
 
 export default function EventLog({ log }: { log: LogLine[] }) {
   return (
-    <details className="text-xs text-foreground/50">
+    <details className="text-xs text-body">
       <summary className="cursor-pointer select-none">raw event log</summary>
       <ul className="mt-2 space-y-1 font-mono">
         {log.map((l) => (
           <li key={l.id} className="truncate">
-            <span className="text-foreground/70">{l.type}</span>
-            {l.text ? <span className="text-foreground/40"> — {l.text}</span> : null}
+            <span className="text-body">{l.type}</span>
+            {l.text ? <span className="text-muted"> — {l.text}</span> : null}
           </li>
         ))}
       </ul>

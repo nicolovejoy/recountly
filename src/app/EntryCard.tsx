@@ -51,21 +51,21 @@ function EntryCardBody({
 }) {
   return (
     <div className="flex flex-col gap-2">
-      <span className="text-sm font-medium text-foreground/90">
+      <span className="text-sm font-medium text-foreground">
         {e.title ?? formatWhen(e.recordedAt)}
       </span>
       {e.title && (
-        <span className="text-xs text-foreground/40">{formatWhen(e.recordedAt)}</span>
+        <span className="text-xs text-muted">{formatWhen(e.recordedAt)}</span>
       )}
       {(journalLabel || e.writtenAt || e.pageLabel) && (
-        <div className="flex flex-wrap items-center gap-2 text-xs text-foreground/40">
+        <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
           {journalLabel && (
-            <span className="rounded-full border border-foreground/10 px-2 py-0.5">
+            <span className="rounded-full border border-hairline px-2 py-0.5">
               📓 {journalLabel}
             </span>
           )}
           {e.pageLabel && (
-            <span className="rounded-full border border-foreground/10 px-2 py-0.5">
+            <span className="rounded-full border border-hairline px-2 py-0.5">
               {e.pageLabel}
             </span>
           )}
@@ -74,13 +74,13 @@ function EntryCardBody({
           )}
         </div>
       )}
-      {e.summary && <p className="text-sm italic text-foreground/60">{e.summary}</p>}
+      {e.summary && <p className="text-sm italic text-muted">{e.summary}</p>}
       {e.tags.length > 0 && (
         <ul className="flex flex-wrap gap-1.5">
           {e.tags.map((tag) => (
             <li
               key={tag}
-              className="rounded-full bg-foreground/5 px-2 py-0.5 text-xs text-foreground/60"
+              className="rounded-full bg-foreground/5 px-2 py-0.5 text-xs text-muted"
             >
               {tag}
             </li>
@@ -99,7 +99,7 @@ function EntryCardBody({
                 src={`/api/photo/${p.id}`}
                 alt="Journal page"
                 loading="lazy"
-                className="h-16 w-16 rounded-md border border-foreground/10 object-cover"
+                className="h-16 w-16 rounded-md border border-hairline object-cover"
               />
             </li>
           ))}
@@ -198,7 +198,7 @@ export default function EntryCard({
   }
 
   return (
-    <li className="flex flex-col gap-2 rounded-xl border border-foreground/10 p-4">
+    <li className="flex flex-col gap-2 rounded-xl border border-hairline bg-surface p-4">
       {selectMode ? (
         <EntryCardBody e={e} journalLabel={journalLabel} thumbs={thumbs} />
       ) : (
@@ -208,7 +208,7 @@ export default function EntryCard({
       )}
 
       <div className="flex items-center justify-between gap-3">
-        <span className="text-xs tabular-nums text-foreground/50">
+        <span className="text-xs tabular-nums text-body">
           {formatElapsed(e.durationSeconds)}
         </span>
         <span className="flex shrink-0 items-baseline gap-2">
@@ -217,7 +217,7 @@ export default function EntryCard({
               type="button"
               onClick={() => setMovePickerOpen((open) => !open)}
               disabled={moving}
-              className="text-xs text-foreground/40 hover:text-foreground/70 disabled:opacity-50"
+              className="text-xs text-muted hover:text-body disabled:opacity-50"
             >
               {moving ? "Moving…" : "Move…"}
             </button>
@@ -226,14 +226,14 @@ export default function EntryCard({
             type="button"
             onClick={handleDelete}
             disabled={trashing}
-            className="text-xs text-foreground/40 hover:text-red-500 disabled:opacity-50"
+            className="text-xs text-muted hover:text-danger disabled:opacity-50"
           >
             {trashing ? "Trashing…" : "Trash"}
           </button>
         </span>
       </div>
       {movePickerOpen && (
-        <div className="flex items-center gap-2 text-xs text-foreground/50">
+        <div className="flex items-center gap-2 text-xs text-body">
           <span>Move to</span>
           <select
             ref={openSelectPicker}
@@ -245,7 +245,7 @@ export default function EntryCard({
               handleMove(v === UNFILED_VALUE ? null : v);
             }}
             aria-label="Move to journal"
-            className="rounded-lg border border-foreground/15 bg-transparent px-2 py-1 text-xs outline-none focus:border-foreground/40"
+            className="rounded-lg border border-hairline bg-transparent px-2 py-1 text-xs outline-none focus:border-hairline-strong focus-visible:ring-1 focus-visible:ring-accent"
           >
             <option value="" disabled>
               Choose…
@@ -264,7 +264,7 @@ export default function EntryCard({
           <button
             type="button"
             onClick={() => setMovePickerOpen(false)}
-            className="text-foreground/40 hover:text-foreground/70"
+            className="text-muted hover:text-body"
           >
             Cancel
           </button>
