@@ -62,7 +62,7 @@ export default function PhotoTray({
               type="button"
               onClick={() => onRemove(p.key)}
               aria-label="Remove photo"
-              className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full border border-hairline-strong bg-background text-[10px] leading-none text-body hover:bg-foreground/[0.08]"
+              className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full border border-hairline-strong bg-background text-[12px] leading-none text-body hover:bg-foreground/[0.08]"
             >
               ✕
             </button>

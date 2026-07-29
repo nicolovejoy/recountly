@@ -19,7 +19,7 @@ export default function TabBar() {
   return (
     <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-hairline bg-background shadow-[0_-2px_10px_rgba(0,0,0,0.08)] pb-[env(safe-area-inset-bottom)] md:hidden">
       {busy && (
-        <p className="pt-1.5 text-center text-[11px] text-body">
+        <p className="pt-1.5 text-center text-[13px] text-body">
           Recording in progress — tap Done before leaving
         </p>
       )}

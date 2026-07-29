@@ -33,7 +33,13 @@ export default function TabsLayout({
             <div className="flex items-center gap-6">
               <TopNav />
               {BUILD_TIME && (
-                <span className="text-[10px] text-muted tabular-nums">{BUILD_TIME} PT</span>
+                <span
+                  className="group rounded-full px-2 py-1 text-[12px] text-muted tabular-nums transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
+                  title="Last build date"
+                >
+                  <span className="hidden group-hover:inline">last build: </span>
+                  {BUILD_TIME} PT
+                </span>
               )}
             </div>
           </header>

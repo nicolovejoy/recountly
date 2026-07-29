@@ -18,13 +18,17 @@ export default function TopNav() {
   const { busy } = useCaptureGuard();
 
   return (
-    <ul className="hidden items-center gap-6 text-sm md:flex">
+    <ul className="hidden items-center gap-1 text-sm md:flex">
       {TABS.map(({ tab, href, label }) => {
         const isActive = tab === active;
         const inert = busy && tab !== "capture";
-        const className = isActive
-          ? "font-semibold text-accent"
-          : "text-muted transition-colors hover:text-foreground";
+        // Whole-pill hit area + hover affordance (owner feedback: only the
+        // letters were clickable before). Hover bg is the same neutral tint
+        // family BrandLamp/other icon buttons use, not accent — active tab
+        // keeps text-accent but doesn't get a green hover fill.
+        const className = `rounded-full px-3 py-1.5 transition-colors hover:bg-foreground/[0.06] ${
+          isActive ? "font-semibold text-accent" : "text-muted hover:text-foreground"
+        }`;
         return (
           <li key={tab}>
             {inert ? (
