@@ -42,8 +42,10 @@ export default function SelectionBar({
 }) {
   const noun = count === 1 ? "entry" : "entries";
   const pickerRef = useRef<HTMLSelectElement>(null);
+  // top-[4.5rem] clears the sticky header (~64px: text-2xl BrandLamp + py-3)
+  // added in #35 — at top-2 the bar would stick behind the higher-z header.
   return (
-    <div className="sticky top-2 z-10 flex flex-wrap items-center gap-2 rounded-lg border border-hairline bg-surface p-2 text-xs text-muted shadow-md">
+    <div className="sticky top-[4.5rem] z-10 flex flex-wrap items-center gap-2 rounded-lg border border-hairline bg-surface p-2 text-xs text-muted shadow-md">
       <span>{count} selected</span>
       <select
         ref={pickerRef}

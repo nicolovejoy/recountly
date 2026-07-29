@@ -88,7 +88,7 @@ function EntryCardBody({
           ))}
         </ul>
       )}
-      <p className="line-clamp-3 whitespace-pre-wrap text-sm leading-relaxed text-foreground/80">
+      <p className="line-clamp-3 whitespace-pre-wrap text-sm leading-relaxed text-body">
         {e.transcript}
       </p>
       {thumbs.length > 0 && (

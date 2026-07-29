@@ -632,7 +632,7 @@ export default function EntryDetail({ id }: { id: string }) {
               Serif for long-form reading (Task 6, #64/#35) — the one place
               in the app where prose is actually read; everything else stays
               Geist Sans. */}
-          <p className="whitespace-pre-wrap font-serif text-sm leading-relaxed text-foreground/80">
+          <p className="whitespace-pre-wrap font-serif text-sm leading-relaxed text-body">
             {entry.transcript}
           </p>
 
