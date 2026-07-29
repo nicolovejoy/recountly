@@ -2,7 +2,26 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Project status: 2026-07-28 — #64 design overhaul + #35 desktop top-nav SHIPPED (PR #65, prod); preview.recountly.org live; font-bump round PR #67 awaiting owner smoke.
+## ⚠️ PIVOT (2026-07-29): FULL NATIVE REBUILD DECIDED — read `docs/native-rebuild-plan.md` FIRST
+
+The owner decided (2026-07-29, after two independent clean-room architecture reviews
+converged) to rebuild recountly as a **native SwiftUI universal app** (iOS 26 + macOS 26):
+audio-as-ground-truth capture, on-device SpeechAnalyzer live transcription, GRDB/SQLite +
+FTS5, CKSyncEngine → CloudKit private DB, **no server**. `docs/native-rebuild-plan.md` is
+the plan of record — decision rationale, architecture, milestones, migration, teardown.
+
+**This entire web codebase is FROZEN.** No new features here. recountly.org stays deployed
+only as the reading surface for existing entries until the native app's Milestone 4
+(CloudKit restore verified), then the Vercel/Neon/Blob stack gets torn down per the plan.
+Open issues and the Node-bump/passkeys roadmap items below are obsoleted or parked — see
+the plan's issue list. Everything below this block is historical context for the frozen
+web app (still valuable: the data-model semantics, enrichment prompt design, and gotchas
+carry over to the native rebuild).
+
+Next session: repo/naming decision → Xcode scaffold → Milestone 1 (indestructible capture)
+plan via the usual subagent pipeline. Milestone 1 has no iOS-26 dependency.
+
+## Project status: 2026-07-28 (historical) — #64 design overhaul + #35 desktop top-nav SHIPPED (PR #65, prod); preview.recountly.org live; #67 (type scale/nav pills), #68 (search snippets), #70 (#69 done-tail fix) all merged to prod after owner smokes; #71 (stall watchdog) filed.
 
 **Shipped 2026-07-28 late (style session, 5-stage subagent pipeline — plan:
 `docs/superpowers/plans/2026-07-28-design-overhaul-and-topnav.md`, owner decisions recorded
