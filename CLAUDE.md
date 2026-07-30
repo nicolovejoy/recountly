@@ -18,8 +18,14 @@ the plan's issue list. Everything below this block is historical context for the
 web app (still valuable: the data-model semantics, enrichment prompt design, and gotchas
 carry over to the native rebuild).
 
-Next session: repo/naming decision → Xcode scaffold → Milestone 1 (indestructible capture)
-plan via the usual subagent pipeline. Milestone 1 has no iOS-26 dependency.
+**Update 2026-07-29 (same day):** the native app is **Raconte** — repo
+**github.com/nicolovejoy/raconte**, bundle `org.recountly.raconte`. Scaffolded, CI green,
+and Milestone 1 (indestructible capture) implemented there via subagent waves; see that
+repo's CLAUDE.md for live status. In THIS repo the migration export shipped:
+`scripts/export-open-package.mjs` (dry-run default / --commit / --verify) and the owner ran
+it — full package (36 entries, 22 imp_, 34 audio, 38MB) written to
+`~/Documents/recountly-export/2026-07-30/` and hash-verified against the live DB. The web
+app remains frozen + deployed as the reading surface until Raconte's Milestone 4.
 
 ## Project status: 2026-07-28 (historical) — #64 design overhaul + #35 desktop top-nav SHIPPED (PR #65, prod); preview.recountly.org live; #67 (type scale/nav pills), #68 (search snippets), #70 (#69 done-tail fix) all merged to prod after owner smokes; #71 (stall watchdog) filed.
 
